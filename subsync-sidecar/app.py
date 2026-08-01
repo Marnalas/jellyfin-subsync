@@ -43,6 +43,11 @@ FFSUBSYNC_EXTRA_ARGS = os.environ.get("FFSUBSYNC_EXTRA_ARGS", "").split()
 _max_parallel_env = os.environ.get("MAX_PARALLEL_JOBS", "").strip()
 MAX_PARALLEL_JOBS = int(_max_parallel_env) if _max_parallel_env else max(1, (os.cpu_count() or 1) - 1)
 
+# Off by default: the synced subtitle replaces the original in place and no
+# copy is kept. Set to "true" to keep a "<name>_original_backup.srt" copy
+# of the pre-sync subtitle alongside it.
+KEEP_ORIGINAL_SUBTITLE_BACKUP = os.environ.get("KEEP_ORIGINAL_SUBTITLE_BACKUP", "").strip().lower() in ("1", "true", "yes")
+
 app = FastAPI(title="subsync-sidecar")
 
 job_queue: "queue.Queue[str]" = queue.Queue()
@@ -79,7 +84,7 @@ def _run_ffsubsync(job_id: str, req: SyncRequest):
         return
 
     temp_out = sub_path.with_name(sub_path.stem + "_synced_temp.srt")
-    backup_path = sub_path.with_name(sub_path.stem + "_original_backup.srt")
+    backup_path = sub_path.with_name(sub_path.stem + "_original_backup.srt") if KEEP_ORIGINAL_SUBTITLE_BACKUP else None
 
     cmd = [
         "ffsubsync",
@@ -105,8 +110,9 @@ def _run_ffsubsync(job_id: str, req: SyncRequest):
         return
 
     try:
-        # Backup original, then replace it with the synced version.
-        backup_path.write_bytes(sub_path.read_bytes())
+        if backup_path is not None:
+            # Backup original, then replace it with the synced version.
+            backup_path.write_bytes(sub_path.read_bytes())
         temp_out.replace(sub_path)
     except OSError as e:
         _fail(job_id, f"Post-processing failed: {e}")
@@ -115,7 +121,7 @@ def _run_ffsubsync(job_id: str, req: SyncRequest):
     with jobs_lock:
         jobs[job_id]["status"] = "done"
         jobs[job_id]["finished_at"] = time.time()
-        jobs[job_id]["backup_path"] = str(backup_path)
+        jobs[job_id]["backup_path"] = str(backup_path) if backup_path is not None else None
     log.info("Job %s: done", job_id)
 
 

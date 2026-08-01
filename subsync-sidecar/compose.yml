@@ -14,6 +14,10 @@
       # to auto-detect (cpu_count - 1); set explicitly if this container has a `--cpus`
       # limit or shares the host with other CPU-hungry services.
       MAX_PARALLEL_JOBS: ""
+      # By default the original subtitle is overwritten with the synced one
+      # and no copy is kept. Set to "true" to keep a
+      # "<name>_original_backup.srt" copy of the pre-sync subtitle.
+      KEEP_ORIGINAL_SUBTITLE_BACKUP: false
     volumes:
       - path/to/library1:BASE_PATH/library1
       - path/to/library2:BASE_PATH/library2

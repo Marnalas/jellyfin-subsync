@@ -52,10 +52,15 @@ service; see `subsync-sidecar/docker-compose.snippet.yml` for a template:
     build: ./subsync-sidecar
     restart: unless-stopped
     environment:
+      FFSUBSYNC_EXTRA_ARGS: ""
       # How many sync jobs run at once. Leave empty or set to 0
       # to auto-detect (cpu_count - 1); set explicitly if this container has a `--cpus`
       # limit or shares the host with other CPU-hungry services.
       MAX_PARALLEL_JOBS: 0
+      # By default the original subtitle is overwritten with the synced one
+      # and no copy is kept. Set to "true" to keep a
+      # "<name>_original_backup.srt" copy of the pre-sync subtitle.
+      KEEP_ORIGINAL_SUBTITLE_BACKUP: false
     volumes:
       - /path/to/library1:/mnt/media/library1
       - /path/to/library2:/mnt/media/library2
