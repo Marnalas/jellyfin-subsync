@@ -29,7 +29,6 @@ from pydantic import BaseModel
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("subsync-sidecar")
 
-BASE_PATH = Path(os.environ.get("BASE_PATH", "/mnt/media"))
 # no --vad flag, so ffsubsync uses its default (webrtc). Switching to
 # GPU-accelerated silero VAD is a later, separate step once this known-working
 # baseline is confirmed running.
@@ -43,7 +42,7 @@ jobs_lock = threading.Lock()
 
 
 class SyncRequest(BaseModel):
-    folder: str            # relative to BASE_PATH, e.g. "movies/uhd/The Batman (2022)"
+    folder: str            # absolute, sidecar-side path, e.g. "/mnt/media/movies/uhd/The Batman (2022)"
     movie_filename: str
     subtitle_filename: str
 
@@ -53,9 +52,15 @@ def _run_ffsubsync(job_id: str, req: SyncRequest):
         jobs[job_id]["status"] = "running"
         jobs[job_id]["started_at"] = time.time()
 
-    folder = req.folder.strip("/")
-    movie_path = BASE_PATH / folder / req.movie_filename
-    sub_path = BASE_PATH / folder / req.subtitle_filename
+    folder = Path(req.folder)
+    try:
+        folder.resolve()
+    except ValueError:
+        _fail(job_id, f"Can't resolve folder {folder}")
+        return
+
+    movie_path = folder / req.movie_filename
+    sub_path = folder / req.subtitle_filename
 
     if not movie_path.is_file():
         _fail(job_id, f"Movie file not found: {movie_path}")

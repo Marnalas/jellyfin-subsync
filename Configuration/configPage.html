@@ -16,27 +16,15 @@
                 </div>
 
                 <div class="inputContainer">
-                    <label class="inputLabel inputLabelUnfocused" for="WatchedPaths">Watched paths</label>
-                    <textarea is="emby-textarea" id="WatchedPaths" rows="6" style="width:100%;"></textarea>
+                    <label class="inputLabel inputLabelUnfocused" for="WatchedPathsMaps">Watched paths</label>
+                    <textarea is="emby-textarea" id="WatchedPathsMaps" rows="8" style="width:100%;"></textarea>
                     <div class="fieldDescription">
-                        One absolute path per line, as seen INSIDE the Jellyfin container
-                        (e.g. /media/films, /media/films4k, /media/series). These must match your
-                        compose volume mounts.
-                    </div>
-                </div>
-
-                <div class="inputContainer">
-                    <input is="emby-input" type="text" id="JellyfinMediaRoot" label="Jellyfin media root" />
-                    <div class="fieldDescription">
-                        Common prefix shared by all watched paths above, e.g. /media
-                    </div>
-                </div>
-
-                <div class="inputContainer">
-                    <input is="emby-input" type="text" id="SidecarMediaRoot" label="Sidecar media root" />
-                    <div class="fieldDescription">
-                        The equivalent prefix as mounted in the sidecar container, e.g. /mnt/media.
-                        Used to translate a Jellyfin-side path into the folder argument the sidecar expects.
+                        One library per line, in the form <code>jellyfin-path =&gt; sidecar-path</code>,
+                        e.g. <code>/media/series4k =&gt; /mnt/media/series4k</code>. The left side is the
+                        path as seen INSIDE the Jellyfin container (must match your compose volume mounts);
+                        the right side is the equivalent path as seen by the subsync-sidecar container.
+                        Each line is independent - there's no shared root requirement between libraries,
+                        so they can be mounted under completely different layouts on each side.
                     </div>
                 </div>
 
@@ -77,12 +65,30 @@
         (function () {
             var pluginId = '6e9cb927-95fc-4ab9-8267-c896060ae50e';
 
-            function arrayToLines(arr) {
-                return (arr || []).join('\n');
+            function mapToLines(map) {
+                return Object.keys(map || {}).map(function (key) {
+                    return key + ' => ' + map[key];
+                }).join('\n');
             }
 
-            function linesToArray(text) {
-                return text.split('\n').map(function (s) { return s.trim(); }).filter(Boolean);
+            function linesToMap(text) {
+                var map = {};
+                text.split('\n').forEach(function (line) {
+                    var trimmed = line.trim();
+                    if (!trimmed) {
+                        return;
+                    }
+                    var idx = trimmed.indexOf('=>');
+                    if (idx === -1) {
+                        return;
+                    }
+                    var key = trimmed.slice(0, idx).trim();
+                    var value = trimmed.slice(idx + 2).trim();
+                    if (key && value) {
+                        map[key] = value;
+                    }
+                });
+                return map;
             }
 
             function arrayToCsv(arr) {
@@ -98,9 +104,7 @@
                     Dashboard.showLoadingMsg();
                     ApiClient.getPluginConfiguration(pluginId).then(function (config) {
                         document.querySelector('#SidecarUrl').value = config.SidecarUrl || '';
-                        document.querySelector('#WatchedPaths').value = arrayToLines(config.WatchedPaths);
-                        document.querySelector('#JellyfinMediaRoot').value = config.JellyfinMediaRoot || '';
-                        document.querySelector('#SidecarMediaRoot').value = config.SidecarMediaRoot || '';
+                        document.querySelector('#WatchedPathsMaps').value = mapToLines(config.WatchedPathsMaps);
                         document.querySelector('#VideoExtensions').value = arrayToCsv(config.VideoExtensions);
                         document.querySelector('#PollIntervalMilliseconds').value = config.PollIntervalMilliseconds || 3000;
                         document.querySelector('#JobTimeoutSeconds').value = config.JobTimeoutSeconds || 1800;
@@ -114,9 +118,7 @@
                     Dashboard.showLoadingMsg();
                     ApiClient.getPluginConfiguration(pluginId).then(function (config) {
                         config.SidecarUrl = document.querySelector('#SidecarUrl').value.trim();
-                        config.WatchedPaths = linesToArray(document.querySelector('#WatchedPaths').value);
-                        config.JellyfinMediaRoot = document.querySelector('#JellyfinMediaRoot').value.trim();
-                        config.SidecarMediaRoot = document.querySelector('#SidecarMediaRoot').value.trim();
+                        config.WatchedPathsMaps = linesToMap(document.querySelector('#WatchedPathsMaps').value);
                         config.VideoExtensions = csvToArray(document.querySelector('#VideoExtensions').value);
                         config.PollIntervalMilliseconds = parseInt(document.querySelector('#PollIntervalMilliseconds').value, 10) || 3000;
                         config.JobTimeoutSeconds = parseInt(document.querySelector('#JobTimeoutSeconds').value, 10) || 1800;

@@ -9,7 +9,6 @@
     build: ./subsync-sidecar   # path to the folder containing the Dockerfile
     restart: unless-stopped
     environment:
-      BASE_PATH: path/to
       FFSUBSYNC_EXTRA_ARGS: ""
     volumes:
       - path/to/container/items/logs:path/to/logs

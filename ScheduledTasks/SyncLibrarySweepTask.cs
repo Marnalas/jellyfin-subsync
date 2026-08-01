@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Subsync.Starter.Application;
@@ -44,7 +45,7 @@ namespace Jellyfin.Subsync.Starter.ScheduledTasks
         public async Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
         {
             var config = Plugin.Instance!.Configuration;
-            var paths = config.WatchedPaths;
+            var paths = config.WatchedPathsMaps.Keys.ToList();
             var processed = 0;
 
             for (var i = 0; i < paths.Count; i++)

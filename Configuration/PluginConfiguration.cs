@@ -17,30 +17,21 @@ namespace Jellyfin.Subsync.Starter.Configuration
         public string SidecarUrl { get; set; } = "http://subsync-sidecar:8000";
 
         /// <summary>
-        /// Absolute paths (as seen INSIDE the Jellyfin container) to scan/watch.
-        /// These must correspond to your library mount points, e.g.
-        /// "/media/films", "/media/films4k", "/media/series", etc.
+        /// Maps each watched library path, as seen INSIDE the Jellyfin
+        /// container (the key), to its equivalent path as seen by the
+        /// subsync-sidecar container (the value). Each pair is independent -
+        /// there's no shared root requirement, so libraries can be mounted
+        /// under completely different directory layouts on each side.
         /// </summary>
-        public List<string> WatchedPaths { get; set; } = new()
+        public Dictionary<string, string> WatchedPathsMaps { get; set; } = new()
         {
-            "/media/films",
-            "/media/films4k",
-            "/media/series",
-            "/media/series4k",
-            "/media/animes",
-            "/media/animes4k",
+            ["/media/films"] = "/mnt/media/films",
+            ["/media/films4k"] = "/mnt/media/films4k",
+            ["/media/series"] = "/mnt/media/series",
+            ["/media/series4k"] = "/mnt/media/series4k",
+            ["/media/animes"] = "/mnt/media/animes",
+            ["/media/animes4k"] = "/mnt/media/animes4k",
         };
-
-        /// <summary>
-        /// Base path as seen by the SIDECAR container (may differ from
-        /// WatchedPaths above, since Jellyfin and the sidecar can mount the
-        /// same host directories at different in-container paths).
-        /// The plugin translates a Jellyfin-side path to a sidecar-side
-        /// "folder" argument using this prefix swap.
-        /// </summary>
-        public string JellyfinMediaRoot { get; set; } = "/media";
-
-        public string SidecarMediaRoot { get; set; } = "/mnt/media";
 
         /// <summary>Video file extensions to consider when matching a subtitle to its video.</summary>
         public List<string> VideoExtensions { get; set; } = new() { "mkv", "mp4", "m4v", "avi", "ts", "mov", "wmv" };

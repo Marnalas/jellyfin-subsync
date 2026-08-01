@@ -47,8 +47,16 @@ namespace Jellyfin.Subsync.Starter.Application
                 return;
             }
 
-            var (folder, subtitleFilename) = SubtitleMatcher.ToSidecarRelative(subtitlePath, config);
-            var (_, movieFilename) = SubtitleMatcher.ToSidecarRelative(moviePath, config);
+            var subtitleMapping = SubtitleMatcher.ToSidecarAbsolute(subtitlePath, config);
+            var movieMapping = SubtitleMatcher.ToSidecarAbsolute(moviePath, config);
+            if (subtitleMapping is null || movieMapping is null)
+            {
+                _logger.LogWarning("Subsync: {Subtitle} is not under any configured WatchedPathsMaps entry, skipping", subtitlePath);
+                return;
+            }
+
+            var (folder, subtitleFilename) = subtitleMapping.Value;
+            var (_, movieFilename) = movieMapping.Value;
 
             _logger.LogInformation("Subsync: syncing {Subtitle} against {Movie}", subtitleFilename, movieFilename);
 
