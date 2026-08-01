@@ -1,0 +1,27 @@
+# Add this service to your existing docker-compose file (the same one that
+# defines `jellyfin`). No GPU reservation, no device passthrough - plain
+# ffsubsync (webrtc VAD) is CPU-only, so there's nothing here for a GPU to
+# accelerate right now. If you switch to silero/fused VAD later, that's the
+# point to add gpu reservation here.
+
+  subsync-sidecar:
+    container_name: subsync-sidecar
+    build: ./subsync-sidecar   # path to the folder containing the Dockerfile
+    restart: unless-stopped
+    environment:
+      BASE_PATH: path/to
+      FFSUBSYNC_EXTRA_ARGS: ""
+    volumes:
+      - path/to/container/items/logs:path/to/logs
+      - path/to/library1:BASE_PATH/library1
+      - path/to/library2:BASE_PATH/library2
+      - path/to/library3:BASE_PATH/library3
+    ports:
+      - 8420:8000   # bind to localhost only; the plugin reaches it via the docker network anyway
+    networks:
+      - default   # must be the same compose network jellyfin is on
+
+# Quick test once it's up:
+#   curl http://localhost:8420/health
+#   curl -X POST http://localhost:8420/sync -H 'Content-Type: application/json' \
+#     -d '{"folder":"path/to/library1/videoFilePath","videoFileName":"...mkv","subtitle_filename":"...lang.srt"}'

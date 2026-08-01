@@ -1,0 +1,132 @@
+<div id="SubsyncConfigPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-checkbox">
+    <div data-role="content">
+        <div class="content-primary">
+            <form id="SubsyncConfigForm" style="max-width:60em;margin:auto;">
+                <div class="verticalSection">
+                    <h2>Subsync</h2>
+                    <p>Configure the connection to the ffsubsync GPU sidecar and which library paths to scan.</p>
+                </div>
+
+                <div class="inputContainer">
+                    <input is="emby-input" type="text" id="SidecarUrl" label="Sidecar URL" />
+                    <div class="fieldDescription">
+                        Base URL of the subsync-sidecar service, e.g. http://subsync-sidecar:8000
+                        (use the docker compose service name so it resolves on the internal network).
+                    </div>
+                </div>
+
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="WatchedPaths">Watched paths</label>
+                    <textarea is="emby-textarea" id="WatchedPaths" rows="6" style="width:100%;"></textarea>
+                    <div class="fieldDescription">
+                        One absolute path per line, as seen INSIDE the Jellyfin container
+                        (e.g. /media/films, /media/films4k, /media/series). These must match your
+                        compose volume mounts.
+                    </div>
+                </div>
+
+                <div class="inputContainer">
+                    <input is="emby-input" type="text" id="JellyfinMediaRoot" label="Jellyfin media root" />
+                    <div class="fieldDescription">
+                        Common prefix shared by all watched paths above, e.g. /media
+                    </div>
+                </div>
+
+                <div class="inputContainer">
+                    <input is="emby-input" type="text" id="SidecarMediaRoot" label="Sidecar media root" />
+                    <div class="fieldDescription">
+                        The equivalent prefix as mounted in the sidecar container, e.g. /mnt/media.
+                        Used to translate a Jellyfin-side path into the folder argument the sidecar expects.
+                    </div>
+                </div>
+
+                <div class="inputContainer">
+                    <input is="emby-input" type="text" id="VideoExtensions" label="Video extensions" />
+                    <div class="fieldDescription">
+                        Comma-separated, no dots, e.g. mkv,mp4,m4v,avi,ts,mov,wmv
+                    </div>
+                </div>
+
+                <div class="inputContainer">
+                    <input is="emby-input" type="number" id="PollIntervalMilliseconds" label="Job poll interval (ms)" />
+                </div>
+
+                <div class="inputContainer">
+                    <input is="emby-input" type="number" id="JobTimeoutSeconds" label="Job timeout (seconds)" />
+                </div>
+
+                <div>
+                    <button is="emby-button" type="submit" class="raised button-submit block">
+                        <span>Save</span>
+                    </button>
+                </div>
+
+                <div class="verticalSection">
+                    <p class="fieldDescription">
+                        The sweep's schedule (default: daily at 02:00, plus once on every server
+                        startup) is edited separately, from
+                        Dashboard &gt; Scheduled Tasks &gt; "Sync unsynced subtitles" &gt; Edit -
+                        same place as any other Jellyfin task.
+                    </p>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script type="text/javascript">
+        (function () {
+            var pluginId = 'b3f6a6d2-4e1a-4b8b-9b8f-9a1c2d3e4f5a';
+
+            function arrayToLines(arr) {
+                return (arr || []).join('\n');
+            }
+
+            function linesToArray(text) {
+                return text.split('\n').map(function (s) { return s.trim(); }).filter(Boolean);
+            }
+
+            function arrayToCsv(arr) {
+                return (arr || []).join(',');
+            }
+
+            function csvToArray(text) {
+                return text.split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+            }
+
+            document.querySelector('#SubsyncConfigPage')
+                .addEventListener('pageshow', function () {
+                    Dashboard.showLoadingMsg();
+                    ApiClient.getPluginConfiguration(pluginId).then(function (config) {
+                        document.querySelector('#SidecarUrl').value = config.SidecarUrl || '';
+                        document.querySelector('#WatchedPaths').value = arrayToLines(config.WatchedPaths);
+                        document.querySelector('#JellyfinMediaRoot').value = config.JellyfinMediaRoot || '';
+                        document.querySelector('#SidecarMediaRoot').value = config.SidecarMediaRoot || '';
+                        document.querySelector('#VideoExtensions').value = arrayToCsv(config.VideoExtensions);
+                        document.querySelector('#PollIntervalMilliseconds').value = config.PollIntervalMilliseconds || 3000;
+                        document.querySelector('#JobTimeoutSeconds').value = config.JobTimeoutSeconds || 1800;
+                        Dashboard.hideLoadingMsg();
+                    });
+                });
+
+            document.querySelector('#SubsyncConfigForm')
+                .addEventListener('submit', function (e) {
+                    e.preventDefault();
+                    Dashboard.showLoadingMsg();
+                    ApiClient.getPluginConfiguration(pluginId).then(function (config) {
+                        config.SidecarUrl = document.querySelector('#SidecarUrl').value.trim();
+                        config.WatchedPaths = linesToArray(document.querySelector('#WatchedPaths').value);
+                        config.JellyfinMediaRoot = document.querySelector('#JellyfinMediaRoot').value.trim();
+                        config.SidecarMediaRoot = document.querySelector('#SidecarMediaRoot').value.trim();
+                        config.VideoExtensions = csvToArray(document.querySelector('#VideoExtensions').value);
+                        config.PollIntervalMilliseconds = parseInt(document.querySelector('#PollIntervalMilliseconds').value, 10) || 3000;
+                        config.JobTimeoutSeconds = parseInt(document.querySelector('#JobTimeoutSeconds').value, 10) || 1800;
+
+                        ApiClient.updatePluginConfiguration(pluginId, config).then(function (result) {
+                            Dashboard.processPluginConfigurationUpdateResult(result);
+                        });
+                    });
+                    return false;
+                });
+        })();
+    </script>
+</div>

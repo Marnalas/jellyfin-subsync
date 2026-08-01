@@ -1,0 +1,64 @@
+using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
+using Jellyfin.Subsync.Starter.Configuration;
+using Jellyfin.Subsync.Starter.Infrastructure;
+using Microsoft.Extensions.Logging;
+
+namespace Jellyfin.Subsync.Starter.Application
+{
+    public class SubtitleSyncOrchestrator
+    {
+        private readonly SubsyncClient _client;
+        private readonly SkipCache _skipCache;
+        private readonly ILogger _logger;
+
+        public SubtitleSyncOrchestrator(SubsyncClient client, SkipCache skipCache, ILogger logger)
+        {
+            _client = client;
+            _skipCache = skipCache;
+            _logger = logger;
+        }
+
+        /// <summary>
+        /// Processes a single subtitle path: matches it to a video, skips it
+        /// if already synced, otherwise calls the sidecar and updates the
+        /// skip-cache on success. Safe to call from both the watcher and the
+        /// scheduled sweep.
+        /// </summary>
+        public async Task ProcessAsync(string subtitlePath, CancellationToken cancellationToken)
+        {
+            var config = Plugin.Instance!.Configuration;
+
+            if (!SubtitleMatcher.IsSubtitleFile(subtitlePath) || !File.Exists(subtitlePath))
+            {
+                return;
+            }
+
+            if (_skipCache.IsAlreadySynced(subtitlePath))
+            {
+                return;
+            }
+
+            var moviePath = SubtitleMatcher.FindMovieFile(subtitlePath, config);
+            if (moviePath is null)
+            {
+                _logger.LogDebug("Subsync: no matching video for {Subtitle}", subtitlePath);
+                return;
+            }
+
+            var (folder, subtitleFilename) = SubtitleMatcher.ToSidecarRelative(subtitlePath, config);
+            var (_, movieFilename) = SubtitleMatcher.ToSidecarRelative(moviePath, config);
+
+            _logger.LogInformation("Subsync: syncing {Subtitle} against {Movie}", subtitleFilename, movieFilename);
+
+            var ok = await _client.SyncAndWaitAsync(folder, movieFilename, subtitleFilename, cancellationToken)
+                .ConfigureAwait(false);
+
+            if (ok)
+            {
+                _skipCache.MarkSynced(subtitlePath);
+            }
+        }
+    }
+}
