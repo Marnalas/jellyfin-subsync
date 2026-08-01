@@ -1,24 +1,13 @@
-using System.IO;
-using System.Threading;
-using System.Threading.Tasks;
-using Jellyfin.Subsync.Starter.Configuration;
 using Jellyfin.Subsync.Starter.Infrastructure;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Subsync.Starter.Application
 {
-    public class SubtitleSyncOrchestrator
+    public class SubtitleSyncOrchestrator(SubsyncClient client, SkipCache skipCache, ILogger logger)
     {
-        private readonly SubsyncClient _client;
-        private readonly SkipCache _skipCache;
-        private readonly ILogger _logger;
-
-        public SubtitleSyncOrchestrator(SubsyncClient client, SkipCache skipCache, ILogger logger)
-        {
-            _client = client;
-            _skipCache = skipCache;
-            _logger = logger;
-        }
+        private readonly SubsyncClient _client = client;
+        private readonly SkipCache _skipCache = skipCache;
+        private readonly ILogger _logger = logger;
 
         /// <summary>
         /// Processes a single subtitle path: matches it to a video, skips it

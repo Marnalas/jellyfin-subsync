@@ -1,25 +1,14 @@
-using System;
-using System.Net.Http;
 using System.Net.Http.Json;
 using System.Text.Json.Serialization;
-using System.Threading;
-using System.Threading.Tasks;
 using Jellyfin.Subsync.Starter.Configuration;
-using Microsoft.Extensions.Http;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Subsync.Starter.Infrastructure
 {
-    public class SubsyncClient
+    public class SubsyncClient(IHttpClientFactory httpClientFactory, ILogger logger)
     {
-        private readonly HttpClient _http;
-        private readonly ILogger _logger;
-
-        public SubsyncClient(IHttpClientFactory httpClientFactory, ILogger logger)
-        {
-            _http = httpClientFactory.CreateClient(nameof(SubsyncClient));
-            _logger = logger;
-        }
+        private readonly HttpClient _http = httpClientFactory.CreateClient(nameof(SubsyncClient));
+        private readonly ILogger _logger = logger;
 
         private static PluginConfiguration Config => Plugin.Instance!.Configuration;
 

@@ -1,4 +1,3 @@
-using System.IO;
 using Jellyfin.Subsync.Starter.Infrastructure;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller;

@@ -1,5 +1,3 @@
-using System;
-using System.Collections.Generic;
 using Jellyfin.Subsync.Starter.Configuration;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Plugins;

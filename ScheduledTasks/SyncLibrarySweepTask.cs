@@ -1,9 +1,3 @@
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
 using Jellyfin.Subsync.Starter.Application;
 using Jellyfin.Subsync.Starter.Infrastructure;
 using MediaBrowser.Model.Tasks;
@@ -20,19 +14,13 @@ namespace Jellyfin.Subsync.Starter.ScheduledTasks
     /// Mirrors the "scheduled sweep + skip cache" pattern used by
     /// whisper-subs, run on startup and on an interval by default.
     /// </summary>
-    public class SyncLibrarySweepTask : IScheduledTask
+    public class SyncLibrarySweepTask(
+        ILogger<SyncLibrarySweepTask> logger,
+        SubsyncClient client,
+        SkipCache skipCache) : IScheduledTask
     {
-        private readonly ILogger<SyncLibrarySweepTask> _logger;
-        private readonly SubtitleSyncOrchestrator _orchestrator;
-
-        public SyncLibrarySweepTask(
-            ILogger<SyncLibrarySweepTask> logger,
-            SubsyncClient client,
-            SkipCache skipCache)
-        {
-            _logger = logger;
-            _orchestrator = new SubtitleSyncOrchestrator(client, skipCache, logger);
-        }
+        private readonly ILogger<SyncLibrarySweepTask> _logger = logger;
+        private readonly SubtitleSyncOrchestrator _orchestrator = new(client, skipCache, logger);
 
         public string Name => "Sync unsynced subtitles";
 

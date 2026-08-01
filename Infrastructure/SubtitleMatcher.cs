@@ -1,6 +1,3 @@
-using System;
-using System.IO;
-using System.Linq;
 using Jellyfin.Subsync.Starter.Configuration;
 
 namespace Jellyfin.Subsync.Starter.Infrastructure

@@ -20,7 +20,7 @@
                     <textarea is="emby-textarea" id="WatchedPathsMaps" rows="8" style="width:100%;"></textarea>
                     <div class="fieldDescription">
                         One library per line, in the form <code>jellyfin-path =&gt; sidecar-path</code>,
-                        e.g. <code>/media/series4k =&gt; /mnt/media/series4k</code>. The left side is the
+                        e.g. <code>/path/to/jellyfin/library =&gt; /path/in/sidecar/container</code>. The left side is the
                         path as seen INSIDE the Jellyfin container (must match your compose volume mounts);
                         the right side is the equivalent path as seen by the subsync-sidecar container.
                         Each line is independent - there's no shared root requirement between libraries,

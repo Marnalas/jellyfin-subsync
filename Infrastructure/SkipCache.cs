@@ -1,6 +1,3 @@
-using System;
-using System.Collections.Generic;
-using System.IO;
 using System.Security.Cryptography;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
@@ -18,8 +15,8 @@ namespace Jellyfin.Subsync.Starter.Infrastructure
     {
         private readonly string _path;
         private readonly ILogger _logger;
-        private readonly object _lock = new();
-        private Dictionary<string, string> _hashes = new();
+        private readonly Lock _lock = new();
+        private Dictionary<string, string> _hashes = [];
 
         public SkipCache(string dataFolderPath, ILogger logger)
         {
@@ -42,12 +39,12 @@ namespace Jellyfin.Subsync.Starter.Infrastructure
                 {
                     var json = File.ReadAllText(_path);
                     _hashes = JsonSerializer.Deserialize<Dictionary<string, string>>(json)
-                              ?? new Dictionary<string, string>();
+                              ?? [];
                 }
                 catch (Exception ex)
                 {
                     _logger.LogWarning(ex, "Subsync: failed to load skip-cache, starting fresh");
-                    _hashes = new Dictionary<string, string>();
+                    _hashes = [];
                 }
             }
         }
