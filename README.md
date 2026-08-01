@@ -79,7 +79,7 @@ Then in Jellyfin, go to Dashboard > Plugins > Subsync and set:
 - **Sidecar URL** - e.g. `http://subsync-sidecar:8000` (the compose service
   name, so it resolves on the internal Docker network).
 - **Watched paths** - one library per line, as `jellyfin-path => sidecar-path`
-  (e.g. `/media/series4k => /mnt/media/series4k`). The left side is the path
+  (e.g. `/path/to/jellyfin/library => /path/in/sidecar/container`). The left side is the path
   as seen inside the Jellyfin container; the right side is the same library
   as seen inside the subsync-sidecar container. Each line is independent -
   libraries don't need to share a common root on either side.
