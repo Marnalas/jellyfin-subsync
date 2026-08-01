@@ -42,7 +42,7 @@ jobs_lock = threading.Lock()
 
 
 class SyncRequest(BaseModel):
-    folder: str            # absolute, sidecar-side path, e.g. "/mnt/media/movies/uhd/The Batman (2022)"
+    folder: str            # absolute, sidecar-side path
     movie_filename: str
     subtitle_filename: str
 
@@ -63,7 +63,7 @@ def _run_ffsubsync(job_id: str, req: SyncRequest):
     sub_path = folder / req.subtitle_filename
 
     if not movie_path.is_file():
-        _fail(job_id, f"Movie file not found: {movie_path}")
+        _fail(job_id, f"Video file not found: {movie_path}")
         return
     if not sub_path.is_file():
         _fail(job_id, f"Subtitle file not found: {sub_path}")
