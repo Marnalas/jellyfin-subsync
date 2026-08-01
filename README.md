@@ -64,23 +64,25 @@ curl http://localhost:8420/health
 
 ### 2. Plugin
 
-```bash
-dotnet build --configuration Release
-mkdir -p <jellyfin-config>/plugins/Subsync
-cp bin/Release/net9.0/Jellyfin.Subsync.Starter.dll <jellyfin-config>/plugins/Subsync/
-# restart jellyfin
-```
+Install it like any other third-party Jellyfin plugin, via a repository -
+not by hand-copying the DLL:
+
+1. Dashboard > Plugins > Repositories > "+" (Add Repository).
+2. Repository name: anything, e.g. `Subsync`.
+   Repository URL: `https://marnalas.github.io/jellyfin-subsync/manifest.json`
+3. Save, then go to Dashboard > Plugins > Catalog, find **Subsync** (category
+   "Subtitles"), and click Install.
+4. Restart Jellyfin.
 
 Then in Jellyfin, go to Dashboard > Plugins > Subsync and set:
 
 - **Sidecar URL** - e.g. `http://subsync-sidecar:8000` (the compose service
   name, so it resolves on the internal Docker network).
-- **Watched paths** - library paths to scan, as seen inside the Jellyfin
-  container (e.g. `/media/films`, `/media/series`).
-- **Jellyfin media root / Sidecar media root** - the common path prefix on
-  each side, used to translate a Jellyfin-side path into the folder the
-  sidecar expects (e.g. `/media` -> `/mnt/media`). These need to point at
-  the same underlying host directories as your compose volume mounts.
+- **Watched paths** - one library per line, as `jellyfin-path => sidecar-path`
+  (e.g. `/media/series4k => /mnt/media/series4k`). The left side is the path
+  as seen inside the Jellyfin container; the right side is the same library
+  as seen inside the subsync-sidecar container. Each line is independent -
+  libraries don't need to share a common root on either side.
 - Video extensions, poll interval, and job timeout, if you want anything
   other than the defaults.
 
