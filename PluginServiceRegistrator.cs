@@ -23,6 +23,14 @@ namespace Jellyfin.Subsync.Starter
                 var logger = provider.GetRequiredService<ILogger<SkipCache>>();
                 return new SkipCache(dataFolder, logger);
             });
+
+            serviceCollection.AddHttpClient();
+            serviceCollection.AddSingleton(provider =>
+            {
+                var httpClientFactory = provider.GetRequiredService<IHttpClientFactory>();
+                var logger = provider.GetRequiredService<ILogger<SubsyncClient>>();
+                return new SubsyncClient(httpClientFactory, logger);
+            });
         }
     }
 }

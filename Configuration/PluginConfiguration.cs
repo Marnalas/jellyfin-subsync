@@ -17,12 +17,17 @@ namespace Jellyfin.Subsync.Starter.Configuration
 
         /// <summary>
         /// Maps each watched library path, as seen INSIDE the Jellyfin
-        /// container (the key), to its equivalent path as seen by the
-        /// subsync-sidecar container (the value). Each pair is independent -
-        /// there's no shared root requirement, so libraries can be mounted
-        /// under completely different directory layouts on each side.
+        /// container, to its equivalent path as seen by the subsync-sidecar
+        /// container. Each pair is independent - there's no shared root
+        /// requirement, so libraries can be mounted under completely
+        /// different directory layouts on each side.
         /// </summary>
-        public Dictionary<string, string> WatchedPathsMaps { get; set; } = [];
+        /// <remarks>
+        /// A List of entries is used instead of a Dictionary because
+        /// Jellyfin persists plugin configuration via XmlSerializer, which
+        /// cannot serialize types that merely implement IDictionary.
+        /// </remarks>
+        public List<PathMapEntry> WatchedPathsMaps { get; set; } = [];
 
         /// <summary>Video file extensions to consider when matching a subtitle to its video.</summary>
         public List<string> VideoExtensions { get; set; } = ["mkv", "mp4", "m4v", "avi", "ts", "mov", "wmv"];

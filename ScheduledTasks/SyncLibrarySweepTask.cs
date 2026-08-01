@@ -33,7 +33,7 @@ namespace Jellyfin.Subsync.Starter.ScheduledTasks
         public async Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
         {
             var config = Plugin.Instance!.Configuration;
-            var paths = config.WatchedPathsMaps.Keys.ToList();
+            var paths = config.WatchedPathsMaps.Select(entry => entry.JellyfinPath).ToList();
             var processed = 0;
 
             for (var i = 0; i < paths.Count; i++)

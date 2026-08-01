@@ -62,16 +62,16 @@ namespace Jellyfin.Subsync.Starter.Infrastructure
             string? bestJellyfinRoot = null;
             string? bestSidecarRoot = null;
 
-            foreach (var (jellyfinPath, sidecarPath) in config.WatchedPathsMaps)
+            foreach (var entry in config.WatchedPathsMaps)
             {
-                var jellyfinRoot = jellyfinPath.TrimEnd('/');
+                var jellyfinRoot = entry.JellyfinPath.TrimEnd('/');
                 var isMatch = dir.Equals(jellyfinRoot, StringComparison.Ordinal)
                     || dir.StartsWith(jellyfinRoot + "/", StringComparison.Ordinal);
 
                 if (isMatch && (bestJellyfinRoot is null || jellyfinRoot.Length > bestJellyfinRoot.Length))
                 {
                     bestJellyfinRoot = jellyfinRoot;
-                    bestSidecarRoot = sidecarPath.TrimEnd('/');
+                    bestSidecarRoot = entry.SidecarPath.TrimEnd('/');
                 }
             }
 

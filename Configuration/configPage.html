@@ -65,14 +65,14 @@
         (function () {
             var pluginId = '6e9cb927-95fc-4ab9-8267-c896060ae50e';
 
-            function mapToLines(map) {
-                return Object.keys(map || {}).map(function (key) {
-                    return key + ' => ' + map[key];
+            function mapToLines(entries) {
+                return (entries || []).map(function (entry) {
+                    return entry.JellyfinPath + ' => ' + entry.SidecarPath;
                 }).join('\n');
             }
 
             function linesToMap(text) {
-                var map = {};
+                var entries = [];
                 text.split('\n').forEach(function (line) {
                     var trimmed = line.trim();
                     if (!trimmed) {
@@ -82,13 +82,13 @@
                     if (idx === -1) {
                         return;
                     }
-                    var key = trimmed.slice(0, idx).trim();
-                    var value = trimmed.slice(idx + 2).trim();
-                    if (key && value) {
-                        map[key] = value;
+                    var jellyfinPath = trimmed.slice(0, idx).trim();
+                    var sidecarPath = trimmed.slice(idx + 2).trim();
+                    if (jellyfinPath && sidecarPath) {
+                        entries.push({ JellyfinPath: jellyfinPath, SidecarPath: sidecarPath });
                     }
                 });
-                return map;
+                return entries;
             }
 
             function arrayToCsv(arr) {
