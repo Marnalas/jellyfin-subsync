@@ -1,5 +1,13 @@
 # Jellyfin Subsync
 
+[![CI Status](https://github.com/Marnalas/jellyfin-subsync/actions/workflows/build-release.yml/badge.svg)](https://github.com/Marnalas/jellyfin-subsync/actions/workflows/build-release.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-maroon.svg)](https://opensource.org/licenses/MIT)
+[![Release](https://img.shields.io/github/v/release/Marnalas/jellyfin-subsync)](https://github.com/Marnalas/jellyfin-subsync/releases)
+[![Jellyfin](https://img.shields.io/badge/Jellyfin-10.11.0%2B-00A4DC.svg)](https://jellyfin.org)
+[![Downloads](https://img.shields.io/github/downloads/Marnalas/jellyfin-subsync/total)](https://github.com/Marnalas/jellyfin-subsync/releases)
+
+![](https://raw.githubusercontent.com/Marnalas/jellyfin-subsync/main/subsyncstarter-banner.png)
+
 A Jellyfin plugin that automatically re-syncs out-of-sync subtitles against
 their video, using [ffsubsync](https://github.com/smacke/ffsubsync). It's
 made of two pieces:
