@@ -28,7 +28,7 @@ namespace Jellyfin.Subsync.Starter.ScheduledTasks
 
         public string Description => "Scans your libraries for subtitles that haven't been GPU-synced yet and syncs them.";
 
-        public string Category => "Library";
+        public string Category => "Subsync Starter";
 
         public async Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
         {

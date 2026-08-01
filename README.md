@@ -65,7 +65,7 @@ Install it like any other third-party Jellyfin plugin, via a repository -
 not by hand-copying the DLL:
 
 1. Dashboard > Plugins > Repositories > "+" (Add Repository).
-2. Repository name: anything, e.g. `Subsync`.
+2. Repository name: anything, e.g. `Subsync Starter`.
    Repository URL: `https://marnalas.github.io/jellyfin-subsync/manifest.json`
 3. Save, then go to Dashboard > Plugins > Catalog, find **Subsync** (category
    "Subtitles"), and click Install.
