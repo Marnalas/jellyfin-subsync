@@ -11,7 +11,6 @@
     environment:
       FFSUBSYNC_EXTRA_ARGS: ""
     volumes:
-      - path/to/container/items/logs:path/to/logs
       - path/to/library1:BASE_PATH/library1
       - path/to/library2:BASE_PATH/library2
       - path/to/library3:BASE_PATH/library3
