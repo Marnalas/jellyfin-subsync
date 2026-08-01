@@ -1,0 +1,161 @@
+name: Build and Release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '**/*.cs'
+      - '**/*.csproj'
+      - '.github/workflows/build-release.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: build-release-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+jobs:
+  # ── Check if release already exists ─────────────────────────────────
+  check-version:
+    runs-on: ubuntu-latest
+    outputs:
+      should_release: ${{ steps.check.outputs.should_release }}
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Get version and check tag
+        id: check
+        run: |
+          VERSION=$(grep -oP '(?<=<Version>)[^<]+' Jellyfin.Subsync.Starter.csproj)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          if git ls-remote --tags origin "refs/tags/v${VERSION}" | grep -q .; then
+            echo "should_release=false" >> $GITHUB_OUTPUT
+            echo "::notice::Tag v${VERSION} already exists — skipping release"
+          else
+            echo "should_release=true" >> $GITHUB_OUTPUT
+          fi
+
+  # ── Build plugin + create release ──────────────────────────────────
+  build:
+    needs: [check-version]
+    if: needs.check-version.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Restore dependencies
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --configuration Release --no-restore
+
+      - name: Create plugin package
+        run: |
+          VERSION="${{ needs.check-version.outputs.version }}"
+          if [[ ! "$VERSION" =~ ^[0-9]+(\.[0-9]+){3}$ ]]; then
+            echo "::error::Invalid plugin version: $VERSION"
+            exit 1
+          fi
+          TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          mkdir -p release
+          cp bin/Release/net9.0/Jellyfin.Subsync.Starter.dll release/
+          cp bin/Release/net9.0/Jellyfin.Subsync.Starter.pdb release/
+          jq -n \
+            --arg version "$VERSION" \
+            --arg timestamp "$TIMESTAMP" \
+            '{
+              category: "Subtitles",
+              changelog: "See https://github.com/Marnalas/jellyfin-subsync/releases",
+              description: "Automatically re-syncs out-of-sync subtitles using ffsubsync.",
+              guid: "6e9cb927-95fc-4ab9-8267-c896060ae50e",
+              name: "SubsyncStarter",
+              overview: "Scans configured library paths for subtitles, matches each one to its video, and calls the subsync-sidecar service (ffsubsync) to fix any timing drift.",
+              owner: "Marnalas",
+              targetAbi: "10.11.0.0",
+              timestamp: $timestamp,
+              version: $version,
+              status: "Active",
+              autoUpdate: true,
+              imagePath: "",
+              assemblies: ["Jellyfin.Subsync.Starter.dll"]
+            }' > release/meta.json
+          cd release && zip -r ../SubsyncStarter_${VERSION}.zip .
+
+      - name: Calculate checksum
+        id: checksum
+        run: |
+          CHECKSUM=$(md5sum SubsyncStarter_${{ needs.check-version.outputs.version }}.zip | cut -d ' ' -f 1)
+          echo "checksum=$CHECKSUM" >> $GITHUB_OUTPUT
+
+      - name: Update manifest.json
+        run: |
+          VERSION="${{ needs.check-version.outputs.version }}"
+          CHECKSUM="${{ steps.checksum.outputs.checksum }}"
+          TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+          NEW_ENTRY=$(jq -n \
+            --arg ver "$VERSION" \
+            --arg cs "$CHECKSUM" \
+            --arg ts "$TIMESTAMP" \
+            '{version: $ver, changelog: "See https://github.com/Marnalas/jellyfin-subsync/releases", targetAbi: "10.11.0.0", sourceUrl: "https://github.com/Marnalas/jellyfin-subsync/releases/download/v\($ver)/SubsyncStarter_\($ver).zip", checksum: $cs, timestamp: $ts}')
+
+          # Fetch live manifest from Pages (has accumulated history)
+          LIVE_MANIFEST=$(curl -sf https://marnalas.github.io/jellyfin-subsync/manifest.json || echo "")
+
+          if [ -n "$LIVE_MANIFEST" ] && echo "$LIVE_MANIFEST" | jq -e '.[0].versions' > /dev/null 2>&1; then
+            echo "$LIVE_MANIFEST" | jq --argjson entry "$NEW_ENTRY" \
+              '.[0].versions = ([$entry] + [.[0].versions[] | select(.version != $entry.version)]) | .[0].versions = .[0].versions[:5]' \
+              > manifest.json
+          elif [ -f manifest.json ] && jq -e '.[0].versions' manifest.json > /dev/null 2>&1; then
+            jq --argjson entry "$NEW_ENTRY" \
+              '.[0].versions = ([$entry] + [.[0].versions[] | select(.version != $entry.version)]) | .[0].versions = .[0].versions[:5]' \
+              manifest.json > manifest.json.tmp && mv manifest.json.tmp manifest.json
+          else
+            jq -n --argjson entry "$NEW_ENTRY" '[{
+              guid: "6e9cb927-95fc-4ab9-8267-c896060ae50e",
+              name: "SubsyncStarter",
+              description: "Automatically re-syncs out-of-sync subtitles using ffsubsync.",
+              overview: "Scans configured library paths for subtitles, matches each one to its video, and calls the subsync-sidecar service (ffsubsync) to fix any timing drift. Defaults as a scheduled sweep (daily + on server startup) with a skip-cache so repeat runs are cheap, and doubles as a manual '\''Run Now'\'' trigger from Dashboard > Scheduled Tasks.",
+              owner: "Marnalas",
+              category: "Subtitles",
+              versions: [$entry]
+            }]' > manifest.json
+          fi
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: v${{ needs.check-version.outputs.version }}
+          name: Subsync v${{ needs.check-version.outputs.version }}
+          files: |
+            SubsyncStarter_${{ needs.check-version.outputs.version }}.zip
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Prepare Pages content
+        run: |
+          mkdir -p _pages
+          cp manifest.json _pages/
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v6
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: _pages
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5
