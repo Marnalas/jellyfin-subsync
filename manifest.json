@@ -6,6 +6,7 @@
     "overview": "Scans configured library paths for subtitles, matches each one to its video, and calls the subsync-sidecar service (ffsubsync) to fix any timing drift. Defaults as a scheduled sweep (daily + on server startup) with a skip-cache so repeat runs are cheap, and doubles as a manual 'Run Now' trigger from Dashboard > Scheduled Tasks.",
     "owner": "Marnalas",
     "category": "Subtitles",
+    "imageUrl": "https://raw.githubusercontent.com/Marnalas/jellyfin-subsync/main/subsyncstarter-banner.png",
     "versions": [
       {
         "version": "1.0.0.0",
