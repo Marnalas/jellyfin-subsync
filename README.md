@@ -43,9 +43,6 @@ service; see `subsync-sidecar/docker-compose.snippet.yml` for a template:
     container_name: subsync-sidecar
     build: ./subsync-sidecar
     restart: unless-stopped
-    environment:
-      BASE_PATH: /mnt/media
-      FFSUBSYNC_EXTRA_ARGS: ""
     volumes:
       - /path/to/library1:/mnt/media/library1
       - /path/to/library2:/mnt/media/library2
