@@ -47,11 +47,25 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
         with:
           dotnet-version: '9.0.x'
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          LAST_TAG=$(git tag -l 'v*' --sort=-v:refname | head -1)
+          RANGE="${LAST_TAG:+${LAST_TAG}..}HEAD"
+          {
+            echo "changelog<<EOF"
+            git log "$RANGE" --pretty=format:'%s (#%h) @%an'
+            echo
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Restore dependencies
         run: dotnet restore
@@ -60,6 +74,8 @@ jobs:
         run: dotnet build --configuration Release --no-restore
 
       - name: Create plugin package
+        env:
+          CHANGELOG: ${{ steps.changelog.outputs.changelog }}
         run: |
           VERSION="${{ needs.check-version.outputs.version }}"
           if [[ ! "$VERSION" =~ ^[0-9]+(\.[0-9]+){3}$ ]]; then
@@ -73,9 +89,10 @@ jobs:
           jq -n \
             --arg version "$VERSION" \
             --arg timestamp "$TIMESTAMP" \
+            --arg changelog "$CHANGELOG" \
             '{
               category: "Subtitles",
-              changelog: "See https://github.com/Marnalas/jellyfin-subsync/releases",
+              changelog: $changelog,
               description: "Automatically re-syncs out-of-sync subtitles using ffsubsync.",
               guid: "6e9cb927-95fc-4ab9-8267-c896060ae50e",
               name: "SubsyncStarter",
@@ -98,6 +115,8 @@ jobs:
           echo "checksum=$CHECKSUM" >> $GITHUB_OUTPUT
 
       - name: Update manifest.json
+        env:
+          CHANGELOG: ${{ steps.changelog.outputs.changelog }}
         run: |
           VERSION="${{ needs.check-version.outputs.version }}"
           CHECKSUM="${{ steps.checksum.outputs.checksum }}"
@@ -107,7 +126,8 @@ jobs:
             --arg ver "$VERSION" \
             --arg cs "$CHECKSUM" \
             --arg ts "$TIMESTAMP" \
-            '{version: $ver, changelog: "See https://github.com/Marnalas/jellyfin-subsync/releases", targetAbi: "10.11.0.0", sourceUrl: "https://github.com/Marnalas/jellyfin-subsync/releases/download/v\($ver)/SubsyncStarter_\($ver).zip", checksum: $cs, timestamp: $ts}')
+            --arg changelog "$CHANGELOG" \
+            '{version: $ver, changelog: $changelog, targetAbi: "10.11.0.0", sourceUrl: "https://github.com/Marnalas/jellyfin-subsync/releases/download/v\($ver)/SubsyncStarter_\($ver).zip", checksum: $cs, timestamp: $ts}')
 
           # Top-level metadata (guid, name, description, overview, owner, category,
           # imageUrl, ...) always comes from the repo's manifest.json, so edits made
