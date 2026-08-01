@@ -43,6 +43,20 @@
                     <input is="emby-input" type="number" id="JobTimeoutSeconds" label="Job timeout (seconds)" />
                 </div>
 
+                <div class="inputContainer">
+                    <input is="emby-input" type="number" id="MaxParallelJobs" label="Max parallel jobs" min="1" />
+                    <div class="fieldDescription">
+                        How many subtitle files the sweep submits to the sidecar at once. Default is 1.
+                        <strong>Raising this only helps if the subsync-sidecar container's own
+                        <code>MAX_PARALLEL_JOBS</code> environment variable is also raised</strong> - the
+                        sidecar itself defaults to (CPU cores - 1) worker threads, but if you leave this
+                        plugin setting at 1, only one file is ever in flight regardless of how many the
+                        sidecar could run. Conversely, raising this past the sidecar's actual worker count
+                        just queues extra jobs there without speeding anything up. Set both together, sized
+                        to the sidecar container's available CPU.
+                    </div>
+                </div>
+
                 <div>
                     <button is="emby-button" type="submit" class="raised button-submit block">
                         <span>Save</span>
@@ -108,6 +122,7 @@
                         document.querySelector('#VideoExtensions').value = arrayToCsv(config.VideoExtensions);
                         document.querySelector('#PollIntervalMilliseconds').value = config.PollIntervalMilliseconds || 3000;
                         document.querySelector('#JobTimeoutSeconds').value = config.JobTimeoutSeconds || 1800;
+                        document.querySelector('#MaxParallelJobs').value = config.MaxParallelJobs || 1;
                         Dashboard.hideLoadingMsg();
                     });
                 });
@@ -122,6 +137,7 @@
                         config.VideoExtensions = csvToArray(document.querySelector('#VideoExtensions').value);
                         config.PollIntervalMilliseconds = parseInt(document.querySelector('#PollIntervalMilliseconds').value, 10) || 3000;
                         config.JobTimeoutSeconds = parseInt(document.querySelector('#JobTimeoutSeconds').value, 10) || 1800;
+                        config.MaxParallelJobs = Math.max(1, parseInt(document.querySelector('#MaxParallelJobs').value, 10) || 1);
 
                         ApiClient.updatePluginConfiguration(pluginId, config).then(function (result) {
                             Dashboard.processPluginConfigurationUpdateResult(result);

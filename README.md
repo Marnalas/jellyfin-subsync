@@ -43,6 +43,11 @@ service; see `subsync-sidecar/docker-compose.snippet.yml` for a template:
     container_name: subsync-sidecar
     build: ./subsync-sidecar
     restart: unless-stopped
+    environment:
+      # How many sync jobs run at once. Leave empty or set to 0
+      # to auto-detect (cpu_count - 1); set explicitly if this container has a `--cpus`
+      # limit or shares the host with other CPU-hungry services.
+      MAX_PARALLEL_JOBS: 0
     volumes:
       - /path/to/library1:/mnt/media/library1
       - /path/to/library2:/mnt/media/library2
@@ -82,6 +87,10 @@ Then in Jellyfin, go to Dashboard > Plugins > Subsync and set:
   libraries don't need to share a common root on either side.
 - Video extensions, poll interval, and job timeout, if you want anything
   other than the defaults.
+- **Max parallel jobs** - how many subtitles the sweep submits to the
+  sidecar at once (default 1). Only raise this alongside the sidecar's own
+  `MAX_PARALLEL_JOBS`; the two need to be sized together, see the config
+  page's field description.
 
 The sweep's schedule (default: daily at 02:00, plus once on every server
 startup) is edited separately from Dashboard > Scheduled Tasks > "Sync

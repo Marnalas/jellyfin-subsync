@@ -37,5 +37,14 @@ namespace Jellyfin.Subsync.Starter.Configuration
 
         /// <summary>Max time to wait for a single sync job before giving up.</summary>
         public int JobTimeoutSeconds { get; set; } = 1800;
+
+        /// <summary>
+        /// How many subtitle files the sweep task submits to the sidecar at
+        /// once. Defaults to 1. Raising this only
+        /// helps if the sidecar's own MAX_PARALLEL_JOBS is also raised (it
+        /// defaults to cpu_count - 1) - otherwise the sidecar just queues
+        /// the extra submissions and runs them one at a time anyway.
+        /// </summary>
+        public int MaxParallelJobs { get; set; } = 1;
     }
 }

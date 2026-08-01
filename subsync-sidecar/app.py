@@ -34,6 +34,15 @@ log = logging.getLogger("subsync-sidecar")
 # baseline is confirmed running.
 FFSUBSYNC_EXTRA_ARGS = os.environ.get("FFSUBSYNC_EXTRA_ARGS", "").split()
 
+# ffsubsync only decodes the audio track (via ffmpeg), not the full video, so
+# it's light enough per-job to run several at once on a multi-core host.
+# Leave one core free by default for the rest of the system (Jellyfin
+# transcoding, etc, often shares the same box); override explicitly via
+# MAX_PARALLEL_JOBS if that guess is wrong for your setup (e.g. the
+# container has a `--cpus` limit lower than the host's core count).
+_max_parallel_env = os.environ.get("MAX_PARALLEL_JOBS", "").strip()
+MAX_PARALLEL_JOBS = int(_max_parallel_env) if _max_parallel_env else max(1, (os.cpu_count() or 1) - 1)
+
 app = FastAPI(title="subsync-sidecar")
 
 job_queue: "queue.Queue[str]" = queue.Queue()
@@ -129,7 +138,9 @@ def _worker():
         job_queue.task_done()
 
 
-threading.Thread(target=_worker, daemon=True).start()
+log.info("Starting %d sync worker thread(s) (MAX_PARALLEL_JOBS)", MAX_PARALLEL_JOBS)
+for _ in range(MAX_PARALLEL_JOBS):
+    threading.Thread(target=_worker, daemon=True).start()
 
 
 @app.get("/health")

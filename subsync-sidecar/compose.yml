@@ -10,6 +10,10 @@
     restart: unless-stopped
     environment:
       FFSUBSYNC_EXTRA_ARGS: ""
+      # How many sync jobs run at once. Leave empty or set to 0
+      # to auto-detect (cpu_count - 1); set explicitly if this container has a `--cpus`
+      # limit or shares the host with other CPU-hungry services.
+      MAX_PARALLEL_JOBS: ""
     volumes:
       - path/to/library1:BASE_PATH/library1
       - path/to/library2:BASE_PATH/library2

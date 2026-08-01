@@ -34,6 +34,7 @@ namespace Jellyfin.Subsync.Starter.ScheduledTasks
         {
             var config = Plugin.Instance!.Configuration;
             var paths = config.WatchedPathsMaps.Select(entry => entry.JellyfinPath).ToList();
+            var maxParallelJobs = Math.Max(1, config.MaxParallelJobs);
             var processed = 0;
 
             for (var i = 0; i < paths.Count; i++)
@@ -56,19 +57,23 @@ namespace Jellyfin.Subsync.Starter.ScheduledTasks
                     continue;
                 }
 
-                foreach (var subtitlePath in subtitles)
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-
-                    if (!SubtitleMatcher.IsSubtitleFile(subtitlePath))
+                // Up to maxParallelJobs subtitles are submitted to the sidecar at once;
+                // each still fully round-trips (submit + poll to completion) within its
+                // own slot, so extra parallelism here only pays off if the sidecar's
+                // MAX_PARALLEL_JOBS is raised to match.
+                await Parallel.ForEachAsync(
+                    subtitles,
+                    new ParallelOptions { MaxDegreeOfParallelism = maxParallelJobs, CancellationToken = cancellationToken },
+                    async (subtitlePath, ct) =>
                     {
-                        continue;
-                    }
+                        if (!SubtitleMatcher.IsSubtitleFile(subtitlePath))
+                        {
+                            return;
+                        }
 
-                    await _orchestrator.ProcessAsync(subtitlePath, cancellationToken)
-                        .ConfigureAwait(false);
-                    processed++;
-                }
+                        await _orchestrator.ProcessAsync(subtitlePath, ct).ConfigureAwait(false);
+                        Interlocked.Increment(ref processed);
+                    }).ConfigureAwait(false);
 
                 progress.Report((i + 1) * 100.0 / paths.Count);
             }
