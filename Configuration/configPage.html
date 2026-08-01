@@ -19,8 +19,8 @@
                     <label class="inputLabel inputLabelUnfocused" for="WatchedPathsMaps">Watched paths</label>
                     <textarea is="emby-textarea" id="WatchedPathsMaps" rows="8" style="width:100%;"></textarea>
                     <div class="fieldDescription">
-                        One library per line, in the form <code>jellyfin-path =&gt; sidecar-path</code>,
-                        e.g. <code>/path/to/jellyfin/library =&gt; /path/in/sidecar/container</code>. The left side is the
+                        One library per line, in the form <code>jellyfin-path : sidecar-path</code>,
+                        e.g. <code>/path/to/jellyfin/library : /path/in/sidecar/container</code>. The left side is the
                         path as seen INSIDE the Jellyfin container (must match your compose volume mounts);
                         the right side is the equivalent path as seen by the subsync-sidecar container.
                         Each line is independent - there's no shared root requirement between libraries,
@@ -67,7 +67,7 @@
 
             function mapToLines(entries) {
                 return (entries || []).map(function (entry) {
-                    return entry.JellyfinPath + ' => ' + entry.SidecarPath;
+                    return entry.JellyfinPath + ' : ' + entry.SidecarPath;
                 }).join('\n');
             }
 
@@ -78,7 +78,7 @@
                     if (!trimmed) {
                         return;
                     }
-                    var idx = trimmed.indexOf('=>');
+                    var idx = trimmed.indexOf(':');
                     if (idx === -1) {
                         return;
                     }
