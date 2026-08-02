@@ -39,26 +39,40 @@ namespace Jellyfin.Subsync.Starter.ScheduledTasks
             var maxParallelJobs = Math.Max(1, config.MaxParallelJobs);
             var processed = 0;
 
-            // Up to maxParallelJobs subtitles are submitted to the sidecar at once,
-            // globally across every watched path; each still fully round-trips
-            // (submit + poll to completion) within its own slot, so extra
-            // parallelism here only pays off if the sidecar's MAX_PARALLEL_JOBS is
-            // raised to match. Subtitles are streamed lazily path by path rather
-            // than collected upfront, so a huge library never sits fully buffered
-            // in memory before syncing starts.
+            // Up to maxParallelJobs file groups are processed in parallel, globally
+            // across every watched path; each still fully round-trips (submit + poll
+            // to completion) within its own slot, so extra parallelism here only pays
+            // off if the sidecar's MAX_PARALLEL_JOBS is raised to match. Subtitles
+            // belonging to the same video file are synced one at a time within a group
+            // (instead of also being spread across slots) so that after the first one
+            // syncs against the video file, the rest see it as an already-synced sibling and
+            // sync against that instead - much faster than each of them re-syncing
+            // against the video file independently. Groups are streamed lazily directory by
+            // directory rather than collected upfront, so a huge library never sits
+            // fully buffered in memory before syncing starts.
             await Parallel.ForEachAsync(
-                EnumerateSubtitles(paths, config, progress),
+                EnumerateSubtitleGroups(paths, config, progress),
                 new ParallelOptions { MaxDegreeOfParallelism = maxParallelJobs, CancellationToken = cancellationToken },
-                async (subtitlePath, ct) =>
+                async (group, ct) =>
                 {
-                    await _orchestrator.ProcessAsync(subtitlePath, ct).ConfigureAwait(false);
-                    Interlocked.Increment(ref processed);
+                    foreach (var subtitlePath in group)
+                    {
+                        await _orchestrator.ProcessAsync(subtitlePath, ct).ConfigureAwait(false);
+                        Interlocked.Increment(ref processed);
+                    }
                 }).ConfigureAwait(false);
 
             _logger.LogInformation("Subsync sweep: checked all watched paths, {Count} subtitle(s) touched", processed);
         }
 
-        private IEnumerable<string> EnumerateSubtitles(List<string> paths, PluginConfiguration config, IProgress<double> progress)
+        /// <summary>
+        /// Walks every watched path directory by directory and, within each
+        /// directory, groups its subtitle files by the video file they belong to
+        /// (same base name, e.g. "Movie.eng.srt" and "Movie.rus.srt" both
+        /// belong to "Movie"). Yields one group at a time so a directory's
+        /// handful of subtitles is buffered, never the whole library.
+        /// </summary>
+        private IEnumerable<IReadOnlyList<string>> EnumerateSubtitleGroups(List<string> paths, PluginConfiguration config, IProgress<double> progress)
         {
             for (var i = 0; i < paths.Count; ++i)
             {
@@ -70,21 +84,21 @@ namespace Jellyfin.Subsync.Starter.ScheduledTasks
                     continue;
                 }
 
-                using var matches = Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories)
-                    .Where(path => SubtitleMatcher.IsSubtitleFile(path, config))
+                using var directories = Directory.EnumerateDirectories(root, "*", SearchOption.AllDirectories)
+                    .Prepend(root)
                     .GetEnumerator();
 
                 while (true)
                 {
-                    string subtitlePath;
+                    string directory;
                     try
                     {
-                        if (!matches.MoveNext())
+                        if (!directories.MoveNext())
                         {
                             break;
                         }
 
-                        subtitlePath = matches.Current;
+                        directory = directories.Current;
                     }
                     catch (Exception ex)
                     {
@@ -92,7 +106,25 @@ namespace Jellyfin.Subsync.Starter.ScheduledTasks
                         break;
                     }
 
-                    yield return subtitlePath;
+                    List<string> subtitlesInDirectory;
+                    try
+                    {
+                        subtitlesInDirectory = [..
+                            Directory.EnumerateFiles(directory,"*", SearchOption.TopDirectoryOnly)
+                                .Where(path => SubtitleMatcher.IsSubtitleFile(path, config))];
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Subsync sweep: failed to list {Path}", directory);
+                        continue;
+                    }
+
+                    foreach (var group in
+                        subtitlesInDirectory
+                            .GroupBy(path => SubtitleMatcher.GetBaseName(Path.GetFileName(path)), StringComparer.OrdinalIgnoreCase))
+                    {
+                        yield return group.ToList();
+                    }
                 }
 
                 // progress.Report((i + 1) * 100.0 / paths.Count); // doesn't really indicate progress as-is

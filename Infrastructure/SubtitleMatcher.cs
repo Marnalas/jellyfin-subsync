@@ -28,11 +28,7 @@ namespace Jellyfin.Subsync.Starter.Infrastructure
         private static IEnumerable<RelatedFile> FindRelatedFilesCore(string subtitlePath, string dir, PluginConfiguration config)
         {
             var subtitleName = Path.GetFileName(subtitlePath);
-            var match = RegularExpressions.RootPart()
-                .Match(subtitleName);
-            var baseName = match.Success
-                ? match.Groups["root"].Value
-                : Path.GetFileNameWithoutExtension(subtitlePath);
+            var baseName = GetBaseName(subtitleName);
 
             foreach (var ext in config.VideoExtensions)
             {
@@ -56,12 +52,7 @@ namespace Jellyfin.Subsync.Starter.Infrastructure
                     continue;
                 }
 
-                var candidateMatch = RegularExpressions.RootPart().Match(candidateName);
-                var candidateBaseName = candidateMatch.Success
-                    ? candidateMatch.Groups["root"].Value
-                    : Path.GetFileNameWithoutExtension(candidate);
-
-                if (!string.Equals(candidateBaseName, baseName, StringComparison.OrdinalIgnoreCase))
+                if (!string.Equals(GetBaseName(candidateName), baseName, StringComparison.OrdinalIgnoreCase))
                 {
                     continue;
                 }
@@ -72,6 +63,21 @@ namespace Jellyfin.Subsync.Starter.Infrastructure
                     FilePath = candidate
                 };
             }
+        }
+
+        /// <summary>
+        /// Strips a file's language/track tag and extension down to the
+        /// shared root used to group a movie with its subtitles (e.g. both
+        /// "Movie.mkv" and "Movie.rus.srt" reduce to "Movie"). Also used by
+        /// SyncLibrarySweepTask to bucket a directory's subtitles by the
+        /// movie they belong to, so siblings can be synced one at a time.
+        /// </summary>
+        internal static string GetBaseName(string fileName)
+        {
+            var match = RegularExpressions.RootPart().Match(fileName);
+            return match.Success
+                ? match.Groups["root"].Value
+                : Path.GetFileNameWithoutExtension(fileName);
         }
 
         /// <summary>
