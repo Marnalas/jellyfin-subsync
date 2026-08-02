@@ -8,12 +8,13 @@ namespace Jellyfin.Subsync.Starter.ScheduledTasks
 {
     /// <summary>
     /// Walks every configured library path and syncs any subtitle the
-    /// skip-cache doesn't already know about. Runs on the same skip-cache
-    /// as the instant watcher, so this is a cheap no-op sweep for anything
-    /// already handled, and a genuine catch-all for anything that arrived
-    /// while the watcher was down, was added outside Jellyfin, etc.
-    /// Mirrors the "scheduled sweep + skip cache" pattern used by
-    /// whisper-subs, run on startup and on an interval by default.
+    /// skip-cache doesn't already know about. The skip-cache makes repeat
+    /// sweeps a cheap no-op for anything already handled, so this is the
+    /// sole catch-all mechanism for anything added since the last sweep -
+    /// there is no filesystem watcher or instant trigger (see
+    /// ARCHITECTURE.md). Mirrors the scheduled-sweep half of the
+    /// "scheduled sweep + skip cache" pattern used by whisper-subs, run on
+    /// startup and on an interval by default.
     /// </summary>
     public class SyncLibrarySweepTask(
         ILogger<SyncLibrarySweepTask> logger,

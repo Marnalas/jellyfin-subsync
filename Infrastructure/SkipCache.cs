@@ -6,10 +6,10 @@ namespace Jellyfin.Subsync.Starter.Infrastructure
 {
     /// <summary>
     /// Tracks which subtitle files have already been synced (by content
-    /// hash), so both the instant watcher and the scheduled sweep skip
-    /// files that are already up to date - and so the watcher doesn't
-    /// re-trigger on the overwrite the sidecar itself causes when it
-    /// replaces the original .srt with the synced version.
+    /// hash), so repeat sweeps skip files that are already up to date -
+    /// and so a later sweep doesn't mistake the sidecar's own overwrite
+    /// (replacing the original .srt with the synced version) for a new,
+    /// unsynced file.
     /// </summary>
     public class SkipCache
     {

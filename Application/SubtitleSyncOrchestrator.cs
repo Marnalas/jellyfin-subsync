@@ -12,8 +12,8 @@ namespace Jellyfin.Subsync.Starter.Application
         /// <summary>
         /// Processes a single subtitle path: matches it to a video, skips it
         /// if already synced, otherwise calls the sidecar and updates the
-        /// skip-cache on success. Safe to call from both the watcher and the
-        /// scheduled sweep.
+        /// skip-cache on success. Safe to call concurrently - the sweep task
+        /// invokes this from multiple parallel workers at once.
         /// </summary>
         public async Task ProcessAsync(string subtitlePath, CancellationToken cancellationToken)
         {
