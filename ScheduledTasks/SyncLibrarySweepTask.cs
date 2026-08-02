@@ -37,8 +37,10 @@ namespace Jellyfin.Subsync.Starter.ScheduledTasks
             var maxParallelJobs = Math.Max(1, config.MaxParallelJobs);
             var processed = 0;
 
-            for (var i = 0; i < paths.Count; i++)
+            for (var i = 0; i < paths.Count; ++i)
             {
+                progress.Report(i * 100.0 / paths.Count);
+
                 var root = paths[i];
                 if (!Directory.Exists(root))
                 {
@@ -70,8 +72,6 @@ namespace Jellyfin.Subsync.Starter.ScheduledTasks
                         await _orchestrator.ProcessAsync(subtitlePath, ct).ConfigureAwait(false);
                         Interlocked.Increment(ref processed);
                     }).ConfigureAwait(false);
-
-                progress.Report((i + 1) * 100.0 / paths.Count);
             }
 
             _logger.LogInformation("Subsync sweep: checked all watched paths, {Count} subtitle(s) touched", processed);
