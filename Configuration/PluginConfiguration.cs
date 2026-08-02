@@ -32,6 +32,9 @@ namespace Jellyfin.Subsync.Starter.Configuration
         /// <summary>Video file extensions to consider when matching a subtitle to its video.</summary>
         public List<string> VideoExtensions { get; set; } = [];
 
+        /// <summary>Subtitle file extensions to scan for and sync.</summary>
+        public List<string> SubtitleExtensions { get; set; } = [];
+
         /// <summary>How often the sidecar job status is polled while waiting for a sync to finish.</summary>
         public int PollIntervalMilliseconds { get; set; } = 3000;
 

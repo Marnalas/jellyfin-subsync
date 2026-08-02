@@ -15,8 +15,12 @@ namespace Jellyfin.Subsync.Starter
         {
             Instance = this;
 
-            if(Configuration.NormalizeVideoExtensions())
+            var videoExtensionsChanged = Configuration.NormalizeVideoExtensions();
+            var subtitleExtensionsChanged = Configuration.NormalizeSubtitleExtensions();
+            if (videoExtensionsChanged || subtitleExtensionsChanged)
+            {
                 SaveConfiguration();
+            }
         }
 
         public override string Name => "Subsync";

@@ -4,10 +4,14 @@ namespace Jellyfin.Subsync.Starter.Infrastructure
 {
     public static class SubtitleMatcher
     {
+        private const string SyncedTempSuffix = "_synced_temp";
+        private const string OriginalBackupSuffix = "_original_backup";
+
         /// <summary>
         /// Given a subtitle path, finds the matching video file in the same
         /// directory. Handles both "Movie.mkv" + "Movie.rus.srt" (language
-        /// tagged) and "Movie.mkv" + "Movie.srt" naming.
+        /// tagged) and "Movie.mkv" + "Movie.srt" naming, for any configured
+        /// SubtitleExtensions.
         /// </summary>
         public static string? FindMovieFile(string subtitlePath, PluginConfiguration config)
         {
@@ -18,12 +22,13 @@ namespace Jellyfin.Subsync.Starter.Infrastructure
             }
 
             var subName = Path.GetFileName(subtitlePath);
-            var noSrt = subName.EndsWith(".srt", StringComparison.OrdinalIgnoreCase)
-                ? subName[..^4]
+            var subExt = Path.GetExtension(subName).TrimStart('.');
+            var noExt = config.SubtitleExtensions.Contains(subExt, StringComparer.OrdinalIgnoreCase)
+                ? subName[..^(subExt.Length + 1)]
                 : subName;
-            var noLang = Path.GetFileNameWithoutExtension(noSrt); // strips one more segment, e.g. ".rus"
+            var noLang = Path.GetFileNameWithoutExtension(noExt); // strips one more segment, e.g. ".rus"
 
-            foreach (var baseName in new[] { noLang, noSrt })
+            foreach (var baseName in new[] { noLang, noExt })
             {
                 foreach (var ext in config.VideoExtensions)
                 {
@@ -38,10 +43,24 @@ namespace Jellyfin.Subsync.Starter.Infrastructure
             return null;
         }
 
-        public static bool IsSubtitleFile(string path) =>
-            path.EndsWith(".srt", StringComparison.OrdinalIgnoreCase)
-            && !path.EndsWith("_synced_temp.srt", StringComparison.OrdinalIgnoreCase)
-            && !path.EndsWith("_original_backup.srt", StringComparison.OrdinalIgnoreCase);
+        /// <summary>
+        /// True if <paramref name="path"/>'s extension is a configured
+        /// SubtitleExtensions entry and it isn't one of the sidecar's own
+        /// temp/backup byproduct files (which carry the same extension as
+        /// the subtitle they were derived from).
+        /// </summary>
+        public static bool IsSubtitleFile(string path, PluginConfiguration config)
+        {
+            var ext = Path.GetExtension(path).TrimStart('.');
+            if (!config.SubtitleExtensions.Contains(ext, StringComparer.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            var stem = Path.GetFileNameWithoutExtension(path);
+            return !stem.EndsWith(SyncedTempSuffix, StringComparison.OrdinalIgnoreCase)
+                && !stem.EndsWith(OriginalBackupSuffix, StringComparison.OrdinalIgnoreCase);
+        }
 
         /// <summary>
         /// Splits a Jellyfin-side absolute path into the (folder, filename)

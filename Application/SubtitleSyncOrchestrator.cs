@@ -19,7 +19,7 @@ namespace Jellyfin.Subsync.Starter.Application
         {
             var config = Plugin.Instance!.Configuration;
 
-            if (!SubtitleMatcher.IsSubtitleFile(subtitlePath) || !File.Exists(subtitlePath))
+            if (!SubtitleMatcher.IsSubtitleFile(subtitlePath, config) || !File.Exists(subtitlePath))
             {
                 return;
             }

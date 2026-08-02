@@ -36,6 +36,15 @@
                 </div>
 
                 <div class="inputContainer">
+                    <input is="emby-input" type="text" id="SubtitleExtensions" label="Subtitle extensions" />
+                    <div class="fieldDescription">
+                        Comma-separated, no dots, e.g. srt,ass,ssa,vtt,sub. ffsubsync reads and
+                        writes each of these formats natively, so non-SRT subtitles are synced
+                        (and kept) in their original format rather than being converted to SRT.
+                    </div>
+                </div>
+
+                <div class="inputContainer">
                     <input is="emby-input" type="number" id="PollIntervalMilliseconds" label="Job poll interval (ms)" />
                 </div>
 
@@ -120,6 +129,7 @@
                         document.querySelector('#SidecarUrl').value = config.SidecarUrl || '';
                         document.querySelector('#WatchedPathsMaps').value = mapToLines(config.WatchedPathsMaps);
                         document.querySelector('#VideoExtensions').value = arrayToCsv(config.VideoExtensions);
+                        document.querySelector('#SubtitleExtensions').value = arrayToCsv(config.SubtitleExtensions);
                         document.querySelector('#PollIntervalMilliseconds').value = config.PollIntervalMilliseconds || 3000;
                         document.querySelector('#JobTimeoutSeconds').value = config.JobTimeoutSeconds || 1800;
                         document.querySelector('#MaxParallelJobs').value = config.MaxParallelJobs || 1;
@@ -135,6 +145,7 @@
                         config.SidecarUrl = document.querySelector('#SidecarUrl').value.trim();
                         config.WatchedPathsMaps = linesToMap(document.querySelector('#WatchedPathsMaps').value);
                         config.VideoExtensions = csvToArray(document.querySelector('#VideoExtensions').value);
+                        config.SubtitleExtensions = csvToArray(document.querySelector('#SubtitleExtensions').value);
                         config.PollIntervalMilliseconds = parseInt(document.querySelector('#PollIntervalMilliseconds').value, 10) || 3000;
                         config.JobTimeoutSeconds = parseInt(document.querySelector('#JobTimeoutSeconds').value, 10) || 1800;
                         config.MaxParallelJobs = Math.max(1, parseInt(document.querySelector('#MaxParallelJobs').value, 10) || 1);

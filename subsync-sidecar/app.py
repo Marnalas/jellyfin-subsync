@@ -44,7 +44,7 @@ _max_parallel_env = os.environ.get("MAX_PARALLEL_JOBS", "").strip()
 MAX_PARALLEL_JOBS = int(_max_parallel_env) if _max_parallel_env else max(1, (os.cpu_count() or 1) - 1)
 
 # Off by default: the synced subtitle replaces the original in place and no
-# copy is kept. Set to "true" to keep a "<name>_original_backup.srt" copy
+# copy is kept. Set to "true" to keep a "<name>_original_backup<ext>" copy
 # of the pre-sync subtitle alongside it.
 KEEP_ORIGINAL_SUBTITLE_BACKUP = os.environ.get("KEEP_ORIGINAL_SUBTITLE_BACKUP", "").strip().lower() in ("1", "true", "yes")
 
@@ -83,8 +83,14 @@ def _run_ffsubsync(job_id: str, req: SyncRequest):
         _fail(job_id, f"Subtitle file not found: {sub_path}")
         return
 
-    temp_out = sub_path.with_name(sub_path.stem + "_synced_temp.srt")
-    backup_path = sub_path.with_name(sub_path.stem + "_original_backup.srt") if KEEP_ORIGINAL_SUBTITLE_BACKUP else None
+    # Keep the original extension (.srt, .ass, .ssa, .vtt, ...) rather than
+    # forcing .srt: ffsubsync/pysubs2 pick the output format from the -o
+    # extension, so forcing .srt here would silently downconvert formats
+    # like ASS to SRT, discarding styling, before renaming the SRT content
+    # over the still-.ass-named original.
+    sub_ext = sub_path.suffix
+    temp_out = sub_path.with_name(sub_path.stem + "_synced_temp" + sub_ext)
+    backup_path = sub_path.with_name(sub_path.stem + "_original_backup" + sub_ext) if KEEP_ORIGINAL_SUBTITLE_BACKUP else None
 
     cmd = [
         "ffsubsync",

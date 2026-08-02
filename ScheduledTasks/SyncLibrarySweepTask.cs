@@ -49,7 +49,8 @@ namespace Jellyfin.Subsync.Starter.ScheduledTasks
                 IEnumerable<string> subtitles;
                 try
                 {
-                    subtitles = Directory.EnumerateFiles(root, "*.srt", SearchOption.AllDirectories);
+                    subtitles = Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories)
+                        .Where(path => SubtitleMatcher.IsSubtitleFile(path, config));
                 }
                 catch (Exception ex)
                 {
@@ -66,11 +67,6 @@ namespace Jellyfin.Subsync.Starter.ScheduledTasks
                     new ParallelOptions { MaxDegreeOfParallelism = maxParallelJobs, CancellationToken = cancellationToken },
                     async (subtitlePath, ct) =>
                     {
-                        if (!SubtitleMatcher.IsSubtitleFile(subtitlePath))
-                        {
-                            return;
-                        }
-
                         await _orchestrator.ProcessAsync(subtitlePath, ct).ConfigureAwait(false);
                         Interlocked.Increment(ref processed);
                     }).ConfigureAwait(false);
