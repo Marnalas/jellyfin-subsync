@@ -1,4 +1,5 @@
 using Jellyfin.Subsync.Starter.Configuration;
+using Jellyfin.Subsync.Starter.Domain;
 
 namespace Jellyfin.Subsync.Starter.Infrastructure
 {
@@ -8,12 +9,12 @@ namespace Jellyfin.Subsync.Starter.Infrastructure
         private const string OriginalBackupSuffix = "_original_backup";
 
         /// <summary>
-        /// Given a subtitle path, finds the matching video file in the same
-        /// directory. Handles both "Movie.mkv" + "Movie.rus.srt" (language
-        /// tagged) and "Movie.mkv" + "Movie.srt" naming, for any configured
-        /// SubtitleExtensions.
+        /// Given a subtitle path, finds the matching video file and other
+        /// subtiles in the same directory. Handles both "Movie.mkv" +
+        /// "Movie.rus.srt" (language tagged) and "Movie.mkv" + "Movie.srt"
+        /// naming, for any configured SubtitleExtensions.
         /// </summary>
-        public static string? FindMovieFile(string subtitlePath, PluginConfiguration config)
+        public static IEnumerable<RelatedFile>? FindRelatedFiles(string subtitlePath, PluginConfiguration config)
         {
             var dir = Path.GetDirectoryName(subtitlePath);
             if (dir is null)
@@ -21,26 +22,56 @@ namespace Jellyfin.Subsync.Starter.Infrastructure
                 return null;
             }
 
-            var subName = Path.GetFileName(subtitlePath);
-            var subExt = Path.GetExtension(subName).TrimStart('.');
-            var noExt = config.SubtitleExtensions.Contains(subExt, StringComparer.OrdinalIgnoreCase)
-                ? subName[..^(subExt.Length + 1)]
-                : subName;
-            var noLang = Path.GetFileNameWithoutExtension(noExt); // strips one more segment, e.g. ".rus"
+            return FindRelatedFilesCore(subtitlePath, dir, config);
+        }
 
-            foreach (var baseName in new[] { noLang, noExt })
+        private static IEnumerable<RelatedFile> FindRelatedFilesCore(string subtitlePath, string dir, PluginConfiguration config)
+        {
+            var subtitleName = Path.GetFileName(subtitlePath);
+            var match = RegularExpressions.RootPart()
+                .Match(subtitleName);
+            var baseName = match.Success
+                ? match.Groups["root"].Value
+                : Path.GetFileNameWithoutExtension(subtitlePath);
+
+            foreach (var ext in config.VideoExtensions)
             {
-                foreach (var ext in config.VideoExtensions)
+                var candidate = Path.Combine(dir, $"{baseName}.{ext}");
+                if (File.Exists(candidate))
                 {
-                    var candidate = Path.Combine(dir, $"{baseName}.{ext}");
-                    if (File.Exists(candidate))
+                    yield return new RelatedFile
                     {
-                        return candidate;
-                    }
+                        Type = FileType.Movie,
+                        FilePath = candidate
+                    };
                 }
             }
 
-            return null;
+            foreach (var candidate in Directory.EnumerateFiles(dir))
+            {
+                var candidateName = Path.GetFileName(candidate);
+                if (string.Equals(candidateName, subtitleName, StringComparison.Ordinal)
+                    || !IsSubtitleFile(candidate, config))
+                {
+                    continue;
+                }
+
+                var candidateMatch = RegularExpressions.RootPart().Match(candidateName);
+                var candidateBaseName = candidateMatch.Success
+                    ? candidateMatch.Groups["root"].Value
+                    : Path.GetFileNameWithoutExtension(candidate);
+
+                if (!string.Equals(candidateBaseName, baseName, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                yield return new RelatedFile
+                {
+                    Type = FileType.Subtitle,
+                    FilePath = candidate
+                };
+            }
         }
 
         /// <summary>
@@ -67,11 +98,10 @@ namespace Jellyfin.Subsync.Starter.Infrastructure
         /// pair the sidecar expects, by finding which WatchedPathsMaps entry
         /// the path falls under and re-rooting the directory from that
         /// entry's Jellyfin-side key onto its sidecar-side value (e.g.
-        /// "/media/series4k/Show" -&gt; "/mnt/media/series4k/Show"). Picks the
-        /// longest matching key so overlapping roots (e.g. "/media/films"
-        /// vs. "/media/films4k") resolve to the right entry regardless of
-        /// dictionary iteration order. Returns null if the path isn't under
-        /// any configured entry.
+        /// "/media/SeriesLibrary/Show" -&gt; "/mnt/media/SeriesLibrary/Show").
+        /// Picks the longest matching key so overlapping roots resolve to the
+        /// right entry regardless of dictionary iteration order. Returns null
+        /// if the path isn't under any configured entry.
         /// </summary>
         public static (string Folder, string Filename)? ToSidecarAbsolute(string absolutePath, PluginConfiguration config)
         {

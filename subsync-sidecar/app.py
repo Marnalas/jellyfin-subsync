@@ -57,7 +57,7 @@ jobs_lock = threading.Lock()
 
 class SyncRequest(BaseModel):
     folder: str            # absolute, sidecar-side path
-    movie_filename: str
+    reference_filename: str
     subtitle_filename: str
 
 
@@ -73,11 +73,11 @@ def _run_ffsubsync(job_id: str, req: SyncRequest):
         _fail(job_id, f"Can't resolve folder {folder}")
         return
 
-    movie_path = folder / req.movie_filename
+    reference_path = folder / req.reference_filename
     sub_path = folder / req.subtitle_filename
 
-    if not movie_path.is_file():
-        _fail(job_id, f"Video file not found: {movie_path}")
+    if not reference_path.is_file():
+        _fail(job_id, f"Reference file not found: {reference_path}")
         return
     if not sub_path.is_file():
         _fail(job_id, f"Subtitle file not found: {sub_path}")
@@ -94,7 +94,7 @@ def _run_ffsubsync(job_id: str, req: SyncRequest):
 
     cmd = [
         "ffsubsync",
-        str(movie_path),
+        str(reference_path),
         "-i", str(sub_path),
         "-o", str(temp_out),
         *FFSUBSYNC_EXTRA_ARGS,

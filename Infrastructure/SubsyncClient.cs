@@ -18,7 +18,7 @@ namespace Jellyfin.Subsync.Starter.Infrastructure
         /// </summary>
         public async Task<bool> SyncAndWaitAsync(
             string folder,
-            string movieFilename,
+            string referenceFilename,
             string subtitleFilename,
             CancellationToken cancellationToken)
         {
@@ -29,7 +29,7 @@ namespace Jellyfin.Subsync.Starter.Infrastructure
             {
                 var response = await _http.PostAsJsonAsync(
                     $"{baseUrl}/sync",
-                    new SyncRequest(folder, movieFilename, subtitleFilename),
+                    new SyncRequest(folder, referenceFilename, subtitleFilename),
                     cancellationToken).ConfigureAwait(false);
                 response.EnsureSuccessStatusCode();
                 created = await response.Content.ReadFromJsonAsync<SyncJobResponse>(cancellationToken: cancellationToken)
@@ -87,7 +87,7 @@ namespace Jellyfin.Subsync.Starter.Infrastructure
 
         private sealed record SyncRequest(
             [property: JsonPropertyName("folder")] string Folder,
-            [property: JsonPropertyName("movie_filename")] string MovieFilename,
+            [property: JsonPropertyName("reference_filename")] string ReferenceFilename,
             [property: JsonPropertyName("subtitle_filename")] string SubtitleFilename);
 
         private sealed record SyncJobResponse([property: JsonPropertyName("job_id")] string JobId);

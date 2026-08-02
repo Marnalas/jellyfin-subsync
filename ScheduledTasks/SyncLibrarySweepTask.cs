@@ -101,18 +101,6 @@ namespace Jellyfin.Subsync.Starter.ScheduledTasks
 
         public IEnumerable<TaskTriggerInfo> GetDefaultTriggers()
         {
-            // These are only the DEFAULTS, used the first time the task is
-            // ever registered. Once installed, the admin can add/remove/
-            // edit triggers - including this daily time - from Dashboard >
-            // Scheduled Tasks > "Sync unsynced subtitles" > Edit. Jellyfin
-            // core persists those edits itself; nothing to do on the
-            // plugin side beyond declaring a sensible starting point.
-
-            // Run once on every server startup, so anything missed while
-            // Jellyfin was down gets caught immediately rather than
-            // waiting for the next scheduled time.
-            yield return new TaskTriggerInfo { Type = TaskTriggerInfoType.StartupTrigger };
-
             // Default daily run at 02:00. Shows up in the admin UI as an
             // editable time-of-day trigger, same as core tasks like
             // "Scan Media Library".
@@ -120,6 +108,7 @@ namespace Jellyfin.Subsync.Starter.ScheduledTasks
             {
                 Type = TaskTriggerInfoType.DailyTrigger,
                 TimeOfDayTicks = TimeSpan.FromHours(2).Ticks,
+                MaxRuntimeTicks = TimeSpan.FromHours(2).Ticks
             };
         }
     }

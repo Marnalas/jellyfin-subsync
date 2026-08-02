@@ -1,3 +1,4 @@
+using Jellyfin.Subsync.Starter.Domain;
 using Jellyfin.Subsync.Starter.Infrastructure;
 using Microsoft.Extensions.Logging;
 
@@ -19,37 +20,43 @@ namespace Jellyfin.Subsync.Starter.Application
         {
             var config = Plugin.Instance!.Configuration;
 
-            if (!SubtitleMatcher.IsSubtitleFile(subtitlePath, config) || !File.Exists(subtitlePath))
+            if (!SubtitleMatcher.IsSubtitleFile(subtitlePath, config)
+                || !File.Exists(subtitlePath)
+                || _skipCache.IsAlreadySynced(subtitlePath))
             {
                 return;
             }
 
-            if (_skipCache.IsAlreadySynced(subtitlePath))
+            var relatedFiles = SubtitleMatcher.FindRelatedFiles(subtitlePath, config);
+            if (relatedFiles is null)
             {
+                _logger.LogDebug("Subsync: no related files for {Subtitle}", subtitlePath);
                 return;
             }
 
-            var moviePath = SubtitleMatcher.FindMovieFile(subtitlePath, config);
-            if (moviePath is null)
+            var referenceFile = relatedFiles
+                .FirstOrDefault(relatedFile => relatedFile.Type == FileType.Subtitle && _skipCache.IsAlreadySynced(relatedFile.FilePath))
+                ?? relatedFiles.FirstOrDefault(rf => rf.Type == FileType.Movie);
+            if (referenceFile is null)
             {
-                _logger.LogDebug("Subsync: no matching video for {Subtitle}", subtitlePath);
+                _logger.LogDebug("Subsync: no already synced subtitle or movie for {Subtitle}", subtitlePath);
                 return;
             }
 
             var subtitleMapping = SubtitleMatcher.ToSidecarAbsolute(subtitlePath, config);
-            var movieMapping = SubtitleMatcher.ToSidecarAbsolute(moviePath, config);
-            if (subtitleMapping is null || movieMapping is null)
+            var referenceFileMapping = SubtitleMatcher.ToSidecarAbsolute(referenceFile.FilePath, config);
+            if (subtitleMapping is null || referenceFileMapping is null)
             {
                 _logger.LogWarning("Subsync: {Subtitle} is not under any configured WatchedPathsMaps entry, skipping", subtitlePath);
                 return;
             }
 
             var (folder, subtitleFilename) = subtitleMapping.Value;
-            var (_, movieFilename) = movieMapping.Value;
+            var (_, referenceFilename) = referenceFileMapping.Value;
 
-            _logger.LogInformation("Subsync: syncing {Subtitle} against {Movie}", subtitleFilename, movieFilename);
+            _logger.LogInformation("Subsync: syncing {Subtitle} against {Reference}", subtitleFilename, referenceFilename);
 
-            var ok = await _client.SyncAndWaitAsync(folder, movieFilename, subtitleFilename, cancellationToken)
+            var ok = await _client.SyncAndWaitAsync(folder, referenceFilename, subtitleFilename, cancellationToken)
                 .ConfigureAwait(false);
 
             if (ok)

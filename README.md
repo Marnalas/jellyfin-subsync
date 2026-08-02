@@ -199,10 +199,10 @@ This is the XML Jellyfin persists under your config volume's
 normally never need to touch it by hand, it's shown here just as a
 concrete, complete example to check your own settings against.
 
-The sweep's schedule (default: daily at 02:00, plus once on every server
-startup) is edited separately from Dashboard > Scheduled Tasks > "Sync
-unsynced subtitles" > Edit, same as any other Jellyfin task. That same page
-also gives you the manual "Run Now" trigger.
+The sweep's schedule (default: daily at 02:00) is edited separately from
+Dashboard > Scheduled Tasks > "Sync unsynced subtitles" > Edit, same as any
+other Jellyfin task. That same page also gives you the manual "Run Now"
+trigger.
 
 The first run can be expected to run for multiple hours depending on the
 number of subtitle files to sync. The next runs should only sync the newly
