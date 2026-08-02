@@ -220,6 +220,18 @@ services running on it.
 3. Run it again immediately after - it should finish fast and log nothing,
    since the skip-cache already has everything from step 2.
 
+## Known limitations
+
+- **The "Sync unsynced subtitles" task shows an indeterminate progress bar,
+  not a percentage.** This is intentional, not a bug: subtitle files are
+  discovered lazily, streamed one path at a time instead of being collected
+  upfront, so a huge library never has to sit fully buffered in memory
+  before syncing starts. The trade-off is that the total subtitle count
+  isn't known until the sweep finishes, so there's no meaningful number to
+  report progress against - an indeterminate bar is preferable to one stuck
+  at 0% for the entire run. Watch the Jellyfin server log for `Subsync:
+  syncing ...` lines if you want visibility into what's actively happening.
+
 ## Thanks
 
 This plugin is just glue - all the actual subtitle-sync work is done by:
