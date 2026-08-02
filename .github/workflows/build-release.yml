@@ -62,7 +62,7 @@ jobs:
           RANGE="${LAST_TAG:+${LAST_TAG}..}HEAD"
           {
             echo "changelog<<EOF"
-            git log "$RANGE" --pretty=format:'%s (#%h) @%an'
+            git log "$RANGE" --pretty=format:'- %s (#%h) @%an'
             echo
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
