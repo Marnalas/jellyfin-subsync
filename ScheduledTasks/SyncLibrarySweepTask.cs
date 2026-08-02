@@ -1,4 +1,5 @@
 using Jellyfin.Subsync.Starter.Application;
+using Jellyfin.Subsync.Starter.Configuration;
 using Jellyfin.Subsync.Starter.Infrastructure;
 using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Logging;
@@ -36,45 +37,66 @@ namespace Jellyfin.Subsync.Starter.ScheduledTasks
             var paths = config.WatchedPathsMaps.Select(entry => entry.JellyfinPath).ToList();
             var maxParallelJobs = Math.Max(1, config.MaxParallelJobs);
             var processed = 0;
+            progress.Report(0);
 
+            // Up to maxParallelJobs subtitles are submitted to the sidecar at once,
+            // globally across every watched path; each still fully round-trips
+            // (submit + poll to completion) within its own slot, so extra
+            // parallelism here only pays off if the sidecar's MAX_PARALLEL_JOBS is
+            // raised to match. Subtitles are streamed lazily path by path rather
+            // than collected upfront, so a huge library never sits fully buffered
+            // in memory before syncing starts.
+            await Parallel.ForEachAsync(
+                EnumerateSubtitles(paths, config, progress),
+                new ParallelOptions { MaxDegreeOfParallelism = maxParallelJobs, CancellationToken = cancellationToken },
+                async (subtitlePath, ct) =>
+                {
+                    await _orchestrator.ProcessAsync(subtitlePath, ct).ConfigureAwait(false);
+                    Interlocked.Increment(ref processed);
+                }).ConfigureAwait(false);
+
+            _logger.LogInformation("Subsync sweep: checked all watched paths, {Count} subtitle(s) touched", processed);
+        }
+
+        private IEnumerable<string> EnumerateSubtitles(List<string> paths, PluginConfiguration config, IProgress<double> progress)
+        {
             for (var i = 0; i < paths.Count; ++i)
             {
-                progress.Report(i * 100.0 / paths.Count);
-
                 var root = paths[i];
                 if (!Directory.Exists(root))
                 {
                     _logger.LogWarning("Subsync sweep: path does not exist, skipping: {Path}", root);
+                    progress.Report((i + 1) * 100.0 / paths.Count);
                     continue;
                 }
 
-                IEnumerable<string> subtitles;
-                try
-                {
-                    subtitles = Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories)
-                        .Where(path => SubtitleMatcher.IsSubtitleFile(path, config));
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Subsync sweep: failed to enumerate {Path}", root);
-                    continue;
-                }
+                using var matches = Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories)
+                    .Where(path => SubtitleMatcher.IsSubtitleFile(path, config))
+                    .GetEnumerator();
 
-                // Up to maxParallelJobs subtitles are submitted to the sidecar at once;
-                // each still fully round-trips (submit + poll to completion) within its
-                // own slot, so extra parallelism here only pays off if the sidecar's
-                // MAX_PARALLEL_JOBS is raised to match.
-                await Parallel.ForEachAsync(
-                    subtitles,
-                    new ParallelOptions { MaxDegreeOfParallelism = maxParallelJobs, CancellationToken = cancellationToken },
-                    async (subtitlePath, ct) =>
+                while (true)
+                {
+                    string subtitlePath;
+                    try
                     {
-                        await _orchestrator.ProcessAsync(subtitlePath, ct).ConfigureAwait(false);
-                        Interlocked.Increment(ref processed);
-                    }).ConfigureAwait(false);
-            }
+                        if (!matches.MoveNext())
+                        {
+                            break;
+                        }
 
-            _logger.LogInformation("Subsync sweep: checked all watched paths, {Count} subtitle(s) touched", processed);
+                        subtitlePath = matches.Current;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Subsync sweep: failed to enumerate {Path}", root);
+                        break;
+                    }
+
+                    yield return subtitlePath;
+                }
+
+                progress.Report((i + 1) * 100.0 / paths.Count);
+            }
         }
 
         public IEnumerable<TaskTriggerInfo> GetDefaultTriggers()
