@@ -51,6 +51,7 @@ service; see `subsync-sidecar/docker-compose.snippet.yml` for a template:
     container_name: subsync-sidecar
     build: ./subsync-sidecar
     restart: unless-stopped
+    # user: "UID:GID" # optional, should match jellyfin configuration
     environment:
       FFSUBSYNC_EXTRA_ARGS: ""
       # How many sync jobs run at once. Leave empty or set to 0
