@@ -38,7 +38,6 @@ namespace Jellyfin.Subsync.Starter.ScheduledTasks
             var paths = config.WatchedPathsMaps.Select(entry => entry.JellyfinPath).ToList();
             var maxParallelJobs = Math.Max(1, config.MaxParallelJobs);
             var processed = 0;
-            progress.Report(0);
 
             // Up to maxParallelJobs subtitles are submitted to the sidecar at once,
             // globally across every watched path; each still fully round-trips
@@ -67,7 +66,7 @@ namespace Jellyfin.Subsync.Starter.ScheduledTasks
                 if (!Directory.Exists(root))
                 {
                     _logger.LogWarning("Subsync sweep: path does not exist, skipping: {Path}", root);
-                    progress.Report((i + 1) * 100.0 / paths.Count);
+                    // progress.Report((i + 1) * 100.0 / paths.Count); // doesn't really indicate progress as-is
                     continue;
                 }
 
@@ -96,7 +95,7 @@ namespace Jellyfin.Subsync.Starter.ScheduledTasks
                     yield return subtitlePath;
                 }
 
-                progress.Report((i + 1) * 100.0 / paths.Count);
+                // progress.Report((i + 1) * 100.0 / paths.Count); // doesn't really indicate progress as-is
             }
         }
 
