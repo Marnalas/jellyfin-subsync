@@ -63,9 +63,9 @@ your-stack/                  # wherever your docker-compose.yml lives
     └── requirements.txt
 ```
 
-For example, here's an example of the `jellyfin` and sidecar service
-declarations (env vars like `${PUID}`/`${SERIESDIR}` are just placeholders,
-substitute your own values/volumes):
+Here's an example of the `jellyfin` and sidecar service declarations (env
+vars like `${PUID}`/`${MEDIADIR}` are just placeholders, substitute your
+own values/volumes):
 
 ```yaml
 services:
@@ -79,9 +79,9 @@ services:
     volumes:
       - ${DOCKERDIR}/jellyfin/config:/config
       - ${DOCKERDIR}/jellyfin/cache:/cache
-      - ${SERIESDIR}/library1:/media/library1
-      - ${SERIESDIR}/library2:/media/library2
-      - ${SERIESDIR}/library3:/media/library3
+      - ${MEDIADIR}/library1:/media/library1
+      - ${MEDIADIR}/library2:/media/library2
+      - ${MEDIADIR}/library3:/media/library3
 
   # Built from the files copied previously. The name you give this service
   # is what you'll use as the host in the plugin's Sidecar URL (here,
@@ -101,11 +101,12 @@ services:
       # Mounting each library at the *same* in-container path as jellyfin
       # above means the plugin's WatchedPathsMaps entries can be simple
       # identity maps instead of needing a per-library translation - see
-      # the plugin config example below.
-      # That being said, you can use different in-container path
-      - ${SERIESDIR}/library1:/media/library1
-      - ${SERIESDIR}/library2:/media/library2
-      - ${SERIESDIR}/library3:/media/library3
+      # the plugin config example below. That being said, you can use
+      # different in-container paths on each side if you'd rather keep
+      # your own layout, just configure the plugin's Watched paths correctly.
+      - ${MEDIADIR}/library1:/media/library1
+      - ${MEDIADIR}/library2:/media/library2
+      - ${MEDIADIR}/library3:/media/library3
 ```
 
 Both services need to be reachable from each other, so make sure they're on
@@ -141,7 +142,7 @@ Then in Jellyfin, go to Dashboard > Plugins > Subsync and set:
 - **Watched paths** - one library per line, as `jellyfin-path => sidecar-path`
   (e.g. `/path/to/jellyfin/library => /path/in/sidecar/container`). The left side is the path
   as seen inside the Jellyfin container; the right side is the same library
-  as seen inside the subsync-sidecar container. Each line is independent -
+  as seen inside the sidecar container. Each line is independent -
   libraries don't need to share a common root on either side.
 - Video extensions, poll interval, and job timeout, if you want anything
   other than the defaults.
