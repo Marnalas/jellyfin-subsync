@@ -42,46 +42,90 @@ No GPU is required - the default `webrtc` VAD `ffsubsync` uses is CPU-only.
 
 ### 1. Sidecar
 
-Build and run `subsync-sidecar/` as its own container alongside Jellyfin.
-Add it to the same `docker-compose.yml` that defines your `jellyfin`
-service; see `subsync-sidecar/docker-compose.snippet.yml` for a template:
+The sidecar is built and run as its own container, alongside Jellyfin, in
+the **same `docker-compose.yml` that already defines your `jellyfin`
+service** - it is not a standalone stack with its own compose file.
 
-```yaml
-  subsync-sidecar:
-    container_name: subsync-sidecar
-    build: ./subsync-sidecar
-    restart: unless-stopped
-    # user: "UID:GID" # optional, should match jellyfin configuration
-    environment:
-      FFSUBSYNC_EXTRA_ARGS: ""
-      # How many sync jobs run at once. Leave empty or set to 0
-      # to auto-detect (cpu_count - 1); set explicitly if this container has a `--cpus`
-      # limit or shares the host with other CPU-hungry services.
-      MAX_PARALLEL_JOBS: 0
-      # By default the original subtitle is overwritten with the synced one
-      # and no copy is kept. Set to "true" to keep a
-      # "<name>_original_backup.srt" copy of the pre-sync subtitle.
-      KEEP_ORIGINAL_SUBTITLE_BACKUP: false
-    volumes:
-      - /path/to/library1:/mnt/media/library1
-      - /path/to/library2:/mnt/media/library2
-    ports:
-      - 8420:8000
-    networks:
-      - default   # must be the same compose network jellyfin is on
+Copy every file from this repo's `subsync-sidecar/` directory **except
+`compose.yml`** (i.e. `app.py`, `Dockerfile`, `requirements.txt`) into a
+folder (e.g. `subsync-sidecar/`) placed next to your own compose file.
+`compose.yml` itself is only a template: you don't copy it, you copy the
+service block it contains into your own compose file (see below).
+
+That gives you a layout like this:
+
+```
+your-stack/                  # wherever your docker-compose.yml lives
+├── docker-compose.yml       # already defines `jellyfin`
+└── subsync-sidecar/
+    ├── app.py
+    ├── Dockerfile
+    └── requirements.txt
 ```
 
-Bring it up and confirm it's healthy before wiring up the plugin:
+For example, here's an example of the `jellyfin` and sidecar service
+declarations (env vars like `${PUID}`/`${SERIESDIR}` are just placeholders,
+substitute your own values/volumes):
+
+```yaml
+services:
+  jellyfin:
+    container_name: jellyfin
+    image: jellyfin/jellyfin:latest
+    restart: unless-stopped
+    user: "${PUID}:${PGID}"
+    ports:
+      - 8096:8096
+    volumes:
+      - ${DOCKERDIR}/jellyfin/config:/config
+      - ${DOCKERDIR}/jellyfin/cache:/cache
+      - ${SERIESDIR}/library1:/media/library1
+      - ${SERIESDIR}/library2:/media/library2
+      - ${SERIESDIR}/library3:/media/library3
+
+  # Built from the files copied previously. The name you give this service
+  # is what you'll use as the host in the plugin's Sidecar URL (here,
+  # http://jellyfin-subsync:8000) - it just needs to be consistent between the two.
+  jellyfin-subsync:
+    container_name: jellyfin-subsync
+    build: ./subsync-sidecar # match the folder name where you copied the sidecar files
+    restart: unless-stopped
+    user: "${PUID}:${PGID}"   # match jellyfin's user so both can read/write the same files
+    # ports:
+    #   - 8420:8000   # only needed to curl it from the host; jellyfin reaches
+    #                 # it over the internal docker network either way
+    environment:
+      MAX_PARALLEL_JOBS: 4
+      KEEP_ORIGINAL_SUBTITLE_BACKUP: false
+    volumes:
+      # Mounting each library at the *same* in-container path as jellyfin
+      # above means the plugin's WatchedPathsMaps entries can be simple
+      # identity maps instead of needing a per-library translation - see
+      # the plugin config example below.
+      # That being said, you can use different in-container path
+      - ${SERIESDIR}/library1:/media/library1
+      - ${SERIESDIR}/library2:/media/library2
+      - ${SERIESDIR}/library3:/media/library3
+```
+
+Both services need to be reachable from each other, so make sure they're on
+the same compose network (the default network they get by simply being in
+the same `docker-compose.yml` is enough, unless you've split networks up
+elsewhere in that file).
+
+Bring the sidecar up and confirm it's healthy before wiring up the plugin:
 
 ```bash
-docker compose up -d subsync-sidecar
+docker compose up -d jellyfin-subsync
+# from the host, if you published a port:
 curl http://localhost:8420/health
+# otherwise, from inside the jellyfin container (the network path the plugin actually uses):
+docker compose exec jellyfin curl http://jellyfin-subsync:8000/health
 ```
 
 ### 2. Plugin
 
-Install it like any other third-party Jellyfin plugin, via a repository -
-not by hand-copying the DLL:
+Install it like any other third-party Jellyfin plugin, via a repository:
 
 1. Dashboard > Plugins > Repositories > "+" (Add Repository).
 2. Repository name: anything, e.g. `Subsync Starter`.
@@ -92,7 +136,7 @@ not by hand-copying the DLL:
 
 Then in Jellyfin, go to Dashboard > Plugins > Subsync and set:
 
-- **Sidecar URL** - e.g. `http://subsync-sidecar:8000` (the compose service
+- **Sidecar URL** - e.g. `http://jellyfin-subsync:8000` (the compose service
   name, so it resolves on the internal Docker network).
 - **Watched paths** - one library per line, as `jellyfin-path => sidecar-path`
   (e.g. `/path/to/jellyfin/library => /path/in/sidecar/container`). The left side is the path
@@ -106,10 +150,64 @@ Then in Jellyfin, go to Dashboard > Plugins > Subsync and set:
   `MAX_PARALLEL_JOBS`; the two need to be sized together, see the config
   page's field description.
 
+**The plugin will not sync subtitles until `Sidecar URL` and `Watched paths`
+are both configured correctly** - if the URL doesn't resolve/isn't
+reachable, or a path pair doesn't point at the same files on both sides,
+the sweep task just completes having found nothing to do, silently. For
+reference, this is the config that comes out of the fields above when
+matching the compose example in step 1, where every library is
+mounted at the same in-container path on both sides, so each map entry is
+an identity map:
+
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<PluginConfiguration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+  <SidecarUrl>http://jellyfin-subsync:8000</SidecarUrl>
+  <WatchedPathsMaps>
+    <PathMapEntry>
+      <JellyfinPath>/media/library1</JellyfinPath>
+      <SidecarPath>/media/library1</SidecarPath>
+    </PathMapEntry>
+    <PathMapEntry>
+      <JellyfinPath>/media/library2</JellyfinPath>
+      <SidecarPath>/media/library2</SidecarPath>
+    </PathMapEntry>
+    <PathMapEntry>
+      <JellyfinPath>/media/library3</JellyfinPath>
+      <SidecarPath>/media/library3</SidecarPath>
+    </PathMapEntry>
+  </WatchedPathsMaps>
+  <VideoExtensions>
+    <string>mkv</string>
+    <string>mp4</string>
+    <string>m4v</string>
+    <string>avi</string>
+    <string>ts</string>
+    <string>mov</string>
+    <string>wmv</string>
+  </VideoExtensions>
+  <PollIntervalMilliseconds>3000</PollIntervalMilliseconds>
+  <JobTimeoutSeconds>1800</JobTimeoutSeconds>
+  <MaxParallelJobs>4</MaxParallelJobs>
+</PluginConfiguration>
+```
+
+This is the XML Jellyfin persists under your config volume's
+`plugins/configurations/` folder after you save the admin page - you
+normally never need to touch it by hand, it's shown here just as a
+concrete, complete example to check your own settings against.
+
 The sweep's schedule (default: daily at 02:00, plus once on every server
 startup) is edited separately from Dashboard > Scheduled Tasks > "Sync
 unsynced subtitles" > Edit, same as any other Jellyfin task. That same page
 also gives you the manual "Run Now" trigger.
+
+The first run can be expected to run for multiple hours depending on the
+number of subtitle files to sync. The next runs should only sync the newly
+added subtitle files and therefore be faster. Execution can be sped up
+using MaxParallelJobs in the plugin settings and MAX_PARALLEL_JOBS in the
+sidecar container. Be mindful of your hardware capabilities and the other
+services running on it.
 
 ## Testing it
 
