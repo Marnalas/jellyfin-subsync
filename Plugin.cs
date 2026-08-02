@@ -14,6 +14,9 @@ namespace Jellyfin.Subsync.Starter
             : base(applicationPaths, xmlSerializer)
         {
             Instance = this;
+
+            if(Configuration.NormalizeVideoExtensions())
+                SaveConfiguration();
         }
 
         public override string Name => "Subsync";
