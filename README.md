@@ -240,3 +240,9 @@ This plugin is just glue - all the actual subtitle-sync work is done by:
   the tool that does the actual alignment of a subtitle track to its video.
 - [**FFmpeg**](https://ffmpeg.org/), which `ffsubsync` relies on to read
   audio from the video file.
+
+## Disclaimer
+
+AI code generation has been used in the development of this plugin, but no
+vide-coding. I write the skeleton and main features and I let AI pipe things
+together, write the comments, etc.
