@@ -49,18 +49,36 @@ namespace Jellyfin.Subsync.Starter.Infrastructure
             }
         }
 
+        /// <summary>
+        /// Writes to a sibling temp file and renames it over the live one.
+        /// The rename is atomic within a directory, so a crash mid-save leaves
+        /// either the previous cache or the new one intact - never a truncated
+        /// file that fails to parse on the next start and forces a full
+        /// library re-sync.
+        /// </summary>
         private void Save()
         {
             lock (_lock)
             {
+                var tempPath = _path + ".tmp";
                 try
                 {
                     var json = JsonSerializer.Serialize(_hashes);
-                    File.WriteAllText(_path, json);
+                    File.WriteAllText(tempPath, json);
+                    File.Move(tempPath, _path, overwrite: true);
                 }
                 catch (Exception ex)
                 {
                     _logger.LogWarning(ex, "Subsync: failed to persist skip-cache");
+
+                    try
+                    {
+                        File.Delete(tempPath);
+                    }
+                    catch (Exception cleanupEx)
+                    {
+                        _logger.LogDebug(cleanupEx, "Subsync: failed to clean up skip-cache temp file");
+                    }
                 }
             }
         }
