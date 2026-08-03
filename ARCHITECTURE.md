@@ -2,8 +2,8 @@
 
 ## Architecture
 
-Matches whisper-subs: scheduled sweep (daily + on startup) + skip-cache +
-manual "Run Now" trigger. No filesystem watcher, no instant trigger.
+Matches whisper-subs: scheduled sweep + skip-cache + manual "Run Now"
+trigger. No filesystem watcher, no instant trigger.
 
 ```
    ┌─────────────────────────────┐
@@ -11,8 +11,8 @@ manual "Run Now" trigger. No filesystem watcher, no instant trigger.
    │  ┌─────────────────────────┐ │      HTTP (POST /sync, GET /jobs/x)
    │  │ Subsync plugin           │─┼──────────────────┐
    │  │  - Scheduled sweep task  │ │                   │
-   │  │    (daily + startup,     │ │                   ▼
-   │  │    also = manual trigger)│ │        ┌───────────────────────┐
+   │  │    (daily + manual       │ │                   ▼
+   │  │    trigger)              │ │        ┌───────────────────────┐
    │  │  - skip-cache            │ │        │  subsync-sidecar       │
    │  │  - admin config page     │ │        │  (own container,       │
    │  └─────────────────────────┘ │        │  lightweight Python    │

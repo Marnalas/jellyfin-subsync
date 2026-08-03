@@ -3,7 +3,7 @@
     "guid": "6e9cb927-95fc-4ab9-8267-c896060ae50e",
     "name": "SubsyncStarter",
     "description": "Automatically re-syncs out-of-sync subtitles using ffsubsync.",
-    "overview": "Scans configured library paths for subtitles, matches each one to its video, and calls the subsync-sidecar service (ffsubsync) to fix any timing drift. Defaults as a scheduled sweep (daily + on server startup) with a skip-cache so repeat runs are cheap, and doubles as a manual 'Run Now' trigger from Dashboard > Scheduled Tasks.",
+    "overview": "Scans configured library paths for subtitles, matches each one to its video, and calls the subsync-sidecar service (ffsubsync) to fix any timing drift. Defaults as a scheduled sweep with a skip-cache so repeat runs are cheap, and doubles as a manual 'Run Now' trigger from Dashboard > Scheduled Tasks.",
     "owner": "Marnalas",
     "category": "Subtitles",
     "imageUrl": "https://raw.githubusercontent.com/Marnalas/jellyfin-subsync/main/subsyncstarter-banner.png",

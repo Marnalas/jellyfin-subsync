@@ -4,7 +4,7 @@ using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Subsync.Starter.Application
 {
-    public class SubtitleSyncOrchestrator(SubsyncClient client, SkipCache skipCache, ILogger logger)
+    internal class SubtitleSyncOrchestrator(SubsyncClient client, SkipCache skipCache, ILogger logger)
     {
         private readonly SubsyncClient _client = client;
         private readonly SkipCache _skipCache = skipCache;
@@ -16,7 +16,7 @@ namespace Jellyfin.Subsync.Starter.Application
         /// skip-cache on success. Safe to call concurrently - the sweep task
         /// invokes this from multiple parallel workers at once.
         /// </summary>
-        public async Task ProcessAsync(string subtitlePath, CancellationToken cancellationToken)
+        internal async Task ProcessAsync(string subtitlePath, CancellationToken cancellationToken)
         {
             var config = Plugin.Instance!.Configuration;
 

@@ -2,11 +2,6 @@ using MediaBrowser.Model.Plugins;
 
 namespace Jellyfin.Subsync.Starter.Configuration
 {
-    /// <summary>
-    /// Plugin configuration. Editable by hand via the plugin's config XML
-    /// under your Jellyfin config volume (plugins/configurations/) until a
-    /// proper admin web UI page is added.
-    /// </summary>
     public class PluginConfiguration : BasePluginConfiguration
     {
         /// <summary>

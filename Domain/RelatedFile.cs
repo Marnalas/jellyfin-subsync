@@ -1,8 +1,8 @@
 namespace Jellyfin.Subsync.Starter.Domain
 {
-    public class RelatedFile
+    internal class RelatedFile
     {
-        public required FileType Type { get; set; }
-        public required string FilePath { get; set; }
+        internal required FileType Type { get; set; }
+        internal required string FilePath { get; set; }
     }
 }

@@ -1,6 +1,6 @@
 namespace Jellyfin.Subsync.Starter.Domain
 {
-    public enum FileType
+    internal enum FileType
     {
         Movie = 0,
         Subtitle = 1

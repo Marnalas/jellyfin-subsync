@@ -28,7 +28,7 @@ namespace Jellyfin.Subsync.Starter
         public override Guid Id => Guid.Parse("6e9cb927-95fc-4ab9-8267-c896060ae50e");
 
         public override string Description =>
-            "Automatically syncs subtitles against their video using a GPU-accelerated ffsubsync sidecar.";
+            "Automatically syncs subtitles against their video using a ffsubsync sidecar.";
 
         public IEnumerable<PluginPageInfo> GetPages()
         {
