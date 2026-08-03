@@ -56,7 +56,23 @@ namespace Jellyfin.Subsync.Starter.ScheduledTasks
                 {
                     foreach (var subtitlePath in group)
                     {
-                        await _orchestrator.ProcessAsync(subtitlePath, ct).ConfigureAwait(false);
+                        // A throw here would otherwise cancel every other worker
+                        // and abandon the rest of the sweep, so a single bad file
+                        // (unreadable subtitle, transient IO error) can't cost a
+                        // multi-hour run. Real cancellation is still honoured.
+                        try
+                        {
+                            await _orchestrator.ProcessAsync(subtitlePath, ct).ConfigureAwait(false);
+                        }
+                        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+                        {
+                            throw;
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "Subsync sweep: failed to process {Subtitle}, continuing", subtitlePath);
+                        }
+
                         Interlocked.Increment(ref processed);
                     }
                 }).ConfigureAwait(false);
