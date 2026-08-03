@@ -9,7 +9,12 @@
     build: ./subsync-sidecar   # path to the folder containing the Dockerfile
     restart: unless-stopped
     # user: "UID:GID" # optional, should match jellyfin configuration
+    # ports:
+    #   - 8420:8000   # only needed to curl it from the host; jellyfin reaches
+    #                 # it over the internal docker network either way
     environment:
+      # Any extra arg you want added to the ffsubsync commands (e.g.
+      # --max-duration-seconds, --extract-audio-first, --multi-segment-sync, etc
       FFSUBSYNC_EXTRA_ARGS: ""
       # How many sync jobs run at once. Leave empty or set to 0
       # to auto-detect (cpu_count - 1); set explicitly if this container has a `--cpus`
@@ -23,10 +28,6 @@
       - path/to/library1:BASE_PATH/library1
       - path/to/library2:BASE_PATH/library2
       - path/to/library3:BASE_PATH/library3
-    ports:
-      - 8420:8000   # bind to localhost only; the plugin reaches it via the docker network anyway
-    networks:
-      - default   # must be the same compose network jellyfin is on
 
 # Quick test once it's up:
 #   curl http://localhost:8420/health

@@ -97,7 +97,17 @@ services:
     #   - 8420:8000   # only needed to curl it from the host; jellyfin reaches
     #                 # it over the internal docker network either way
     environment:
+      # Any extra arg you want added to the ffsubsync commands (e.g.
+      # --max-duration-seconds, --extract-audio-first, --multi-segment-sync, etc
+      FFSUBSYNC_EXTRA_ARGS: ""
+      # How many sync jobs run at once. Leave empty or set to 0
+      # to auto-detect (cpu_count - 1); recommended to set explicitly
+      # especially if this container has a `--cpus` limit or shares
+      # the host with other CPU-hungry services.
       MAX_PARALLEL_JOBS: 4
+      # By default the original subtitle is overwritten with the synced one
+      # and no copy is kept. Set to "true" to keep a
+      # "<name>_original_backup.srt" copy of the pre-sync subtitle.
       KEEP_ORIGINAL_SUBTITLE_BACKUP: false
     volumes:
       # Mounting each library at the *same* in-container path as jellyfin
@@ -142,12 +152,12 @@ Then in Jellyfin, go to Dashboard > Plugins > Subsync and set:
 - **Sidecar URL** - e.g. `http://jellyfin-subsync:8000` (the compose service
   name, so it resolves on the internal Docker network).
 - **Watched paths** - one library per line, as `jellyfin-path : sidecar-path`
-  (e.g. `/path/to/jellyfin/library : /path/in/sidecar/container`). The left side is the path
-  as seen inside the Jellyfin container; the right side is the same library
-  as seen inside the sidecar container. Each line is independent -
-  libraries don't need to share a common root on either side.
-- Video extensions, poll interval, and job timeout, if you want anything
-  other than the defaults.
+  (e.g. `/path/to/jellyfin/library : /path/in/sidecar/container`). The left
+  side is the path as seen inside the Jellyfin container; the right side is
+  the same library as seen inside the sidecar container. Each line is
+  independent - libraries don't need to share a common root on either side.
+- Video extensions, subtitleExtensions, poll interval, and job timeout, if
+  you want anything other than the defaults.
 - **Max parallel jobs** - how many subtitles the sweep submits to the
   sidecar at once (default 1). Only raise this alongside the sidecar's own
   `MAX_PARALLEL_JOBS`; the two need to be sized together, see the config
@@ -189,6 +199,13 @@ an identity map:
     <string>mov</string>
     <string>wmv</string>
   </VideoExtensions>
+  <SubtitleExtensions>
+    <string>srt</string>
+    <string>ass</string>
+    <string>ssa</string>
+    <string>vtt</string>
+    <string>sub</string>
+  </SubtitleExtensions>
   <PollIntervalMilliseconds>3000</PollIntervalMilliseconds>
   <JobTimeoutSeconds>1800</JobTimeoutSeconds>
   <MaxParallelJobs>4</MaxParallelJobs>
