@@ -4,6 +4,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-maroon.svg)](https://opensource.org/licenses/MIT)
 [![Release](https://img.shields.io/github/v/release/Marnalas/jellyfin-subsync)](https://github.com/Marnalas/jellyfin-subsync/releases)
 [![Jellyfin](https://img.shields.io/badge/Jellyfin-10.11.0%2B-00A4DC.svg)](https://jellyfin.org)
+[![JellyWatch Hub](https://jellywatch.app/hub/subsync-starter/badge.svg)](https://jellywatch.app/hub/subsync-starter)
 [![Downloads](https://img.shields.io/github/downloads/Marnalas/jellyfin-subsync/total)](https://github.com/Marnalas/jellyfin-subsync/releases)
 
 ![](https://raw.githubusercontent.com/Marnalas/jellyfin-subsync/main/subsyncstarter-banner.png)
