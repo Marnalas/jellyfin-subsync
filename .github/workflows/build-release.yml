@@ -6,6 +6,7 @@ on:
     paths:
       - '**/*.cs'
       - '**/*.csproj'
+      - 'Directory.Build.props'
       - '.github/workflows/build-release.yml'
   workflow_dispatch:
 
@@ -31,7 +32,7 @@ jobs:
       - name: Get version and check tag
         id: check
         run: |
-          VERSION=$(grep -oP '(?<=<Version>)[^<]+' Jellyfin.Subsync.Starter.csproj)
+          VERSION=$(grep -oP '(?<=<Version>)[^<]+' Directory.Build.props)
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           if git ls-remote --tags origin "refs/tags/v${VERSION}" | grep -q .; then
             echo "should_release=false" >> $GITHUB_OUTPUT
