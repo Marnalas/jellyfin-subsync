@@ -11,7 +11,7 @@ Endpoints:
   GET  /jobs/{job_id}       -> job status: queued | running | done | failed
   GET  /jobs                -> list recent jobs
 
-Jobs are processed one at a time by a single worker thread.
+Jobs are processed by a pool of MAX_PARALLEL_JOBS worker threads.
 """
 import os
 import subprocess
@@ -40,8 +40,16 @@ FFSUBSYNC_EXTRA_ARGS = os.environ.get("FFSUBSYNC_EXTRA_ARGS", "").split()
 # transcoding, etc, often shares the same box); override explicitly via
 # MAX_PARALLEL_JOBS if that guess is wrong for your setup (e.g. the
 # container has a `--cpus` limit lower than the host's core count).
+# An unset, "0", or unparseable value all mean "auto-detect", as documented in
+# compose.yml - taking int("0") at face value would start zero worker threads,
+# leaving every submitted job queued forever with nothing to run it.
 _max_parallel_env = os.environ.get("MAX_PARALLEL_JOBS", "").strip()
-MAX_PARALLEL_JOBS = int(_max_parallel_env) if _max_parallel_env else max(1, (os.cpu_count() or 1) - 1)
+try:
+    _configured_parallel_jobs = int(_max_parallel_env) if _max_parallel_env else 0
+except ValueError:
+    log.warning("Ignoring unparseable MAX_PARALLEL_JOBS=%r, auto-detecting instead", _max_parallel_env)
+    _configured_parallel_jobs = 0
+MAX_PARALLEL_JOBS = _configured_parallel_jobs if _configured_parallel_jobs > 0 else max(1, (os.cpu_count() or 1) - 1)
 
 # Off by default: the synced subtitle replaces the original in place and no
 # copy is kept. Set to "true" to keep a "<name>_original_backup<ext>" copy
