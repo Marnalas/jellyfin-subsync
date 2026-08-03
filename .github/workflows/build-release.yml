@@ -8,6 +8,15 @@ on:
       - '**/*.csproj'
       - 'Directory.Build.props'
       - '.github/workflows/build-release.yml'
+  # Pull requests run the tests only - every release-side job is guarded on
+  # the event being a push, so a PR never tags, releases or publishes Pages.
+  pull_request:
+    branches: [main]
+    paths:
+      - '**/*.cs'
+      - '**/*.csproj'
+      - 'Directory.Build.props'
+      - '.github/workflows/build-release.yml'
   workflow_dispatch:
 
 concurrency:
@@ -20,6 +29,22 @@ permissions:
   id-token: write
 
 jobs:
+  # ── Unit tests ──────────────────────────────────────────────────────
+  # Deliberately unguarded, so tests also run on pushes that don't bump
+  # <Version> (i.e. that won't release), not just on release-worthy ones.
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Run tests
+        run: dotnet test tests/Jellyfin.Subsync.Starter.Tests/Jellyfin.Subsync.Starter.Tests.csproj --configuration Release
+
   # ── Check if release already exists ─────────────────────────────────
   check-version:
     runs-on: ubuntu-latest
@@ -43,8 +68,8 @@ jobs:
 
   # ── Build plugin + create release ──────────────────────────────────
   build:
-    needs: [check-version]
-    if: needs.check-version.outputs.should_release == 'true'
+    needs: [test, check-version]
+    if: github.event_name != 'pull_request' && needs.check-version.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
