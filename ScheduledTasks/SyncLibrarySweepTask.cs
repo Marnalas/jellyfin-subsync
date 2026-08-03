@@ -1,5 +1,4 @@
 using Jellyfin.Subsync.Starter.Application;
-using Jellyfin.Subsync.Starter.Configuration;
 using Jellyfin.Subsync.Starter.Infrastructure;
 using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Logging;
@@ -28,7 +27,7 @@ namespace Jellyfin.Subsync.Starter.ScheduledTasks
 
         public string Key => "SubsyncLibrarySweep";
 
-        public string Description => "Scans your libraries for subtitles that haven't been GPU-synced yet and syncs them.";
+        public string Description => "Scans your libraries for subtitles that haven't been synced yet and syncs them.";
 
         public string Category => "Subsync Starter";
 
@@ -51,7 +50,7 @@ namespace Jellyfin.Subsync.Starter.ScheduledTasks
             // directory rather than collected upfront, so a huge library never sits
             // fully buffered in memory before syncing starts.
             await Parallel.ForEachAsync(
-                EnumerateSubtitleGroups(paths, config, progress),
+                SubtitleMatcher.EnumerateSubtitleGroups(paths, config, _logger),
                 new ParallelOptions { MaxDegreeOfParallelism = maxParallelJobs, CancellationToken = cancellationToken },
                 async (group, ct) =>
                 {
@@ -63,72 +62,6 @@ namespace Jellyfin.Subsync.Starter.ScheduledTasks
                 }).ConfigureAwait(false);
 
             _logger.LogInformation("Subsync sweep: checked all watched paths, {Count} subtitle(s) touched", processed);
-        }
-
-        /// <summary>
-        /// Walks every watched path directory by directory and, within each
-        /// directory, groups its subtitle files by the video file they belong to
-        /// (same base name, e.g. "Movie.eng.srt" and "Movie.rus.srt" both
-        /// belong to "Movie"). Yields one group at a time so a directory's
-        /// handful of subtitles is buffered, never the whole library.
-        /// </summary>
-        private IEnumerable<IReadOnlyList<string>> EnumerateSubtitleGroups(List<string> paths, PluginConfiguration config, IProgress<double> progress)
-        {
-            for (var i = 0; i < paths.Count; ++i)
-            {
-                var root = paths[i];
-                if (!Directory.Exists(root))
-                {
-                    _logger.LogWarning("Subsync sweep: path does not exist, skipping: {Path}", root);
-                    // progress.Report((i + 1) * 100.0 / paths.Count); // doesn't really indicate progress as-is
-                    continue;
-                }
-
-                using var directories = Directory.EnumerateDirectories(root, "*", SearchOption.AllDirectories)
-                    .Prepend(root)
-                    .GetEnumerator();
-
-                while (true)
-                {
-                    string directory;
-                    try
-                    {
-                        if (!directories.MoveNext())
-                        {
-                            break;
-                        }
-
-                        directory = directories.Current;
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "Subsync sweep: failed to enumerate {Path}", root);
-                        break;
-                    }
-
-                    List<string> subtitlesInDirectory;
-                    try
-                    {
-                        subtitlesInDirectory = [..
-                            Directory.EnumerateFiles(directory,"*", SearchOption.TopDirectoryOnly)
-                                .Where(path => SubtitleMatcher.IsSubtitleFile(path, config))];
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "Subsync sweep: failed to list {Path}", directory);
-                        continue;
-                    }
-
-                    foreach (var group in
-                        subtitlesInDirectory
-                            .GroupBy(path => SubtitleMatcher.GetBaseName(Path.GetFileName(path)), StringComparer.OrdinalIgnoreCase))
-                    {
-                        yield return group.ToList();
-                    }
-                }
-
-                // progress.Report((i + 1) * 100.0 / paths.Count); // doesn't really indicate progress as-is
-            }
         }
 
         public IEnumerable<TaskTriggerInfo> GetDefaultTriggers()

@@ -1,12 +1,76 @@
 using Jellyfin.Subsync.Starter.Configuration;
 using Jellyfin.Subsync.Starter.Domain;
+using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Subsync.Starter.Infrastructure
 {
-    public static class SubtitleMatcher
+    internal static class SubtitleMatcher
     {
         private const string SyncedTempSuffix = "_synced_temp";
         private const string OriginalBackupSuffix = "_original_backup";
+
+        /// <summary>
+        /// Walks every watched path directory by directory and, within each
+        /// directory, groups its subtitle files by the video file they belong to
+        /// (same base name, e.g. "Movie.eng.srt" and "Movie.rus.srt" both
+        /// belong to "Movie"). Yields one group at a time so a directory's
+        /// handful of subtitles is buffered, never the whole library.
+        /// </summary>
+        internal static IEnumerable<IReadOnlyList<string>> EnumerateSubtitleGroups(List<string> paths, PluginConfiguration config, ILogger logger)
+        {
+            for (var i = 0; i < paths.Count; ++i)
+            {
+                var root = paths[i];
+                if (!Directory.Exists(root))
+                {
+                    logger.LogWarning("Subsync sweep: path does not exist, skipping: {Path}", root);
+                    continue;
+                }
+
+                using var directories = Directory.EnumerateDirectories(root, "*", SearchOption.AllDirectories)
+                    .Prepend(root)
+                    .GetEnumerator();
+
+                while (true)
+                {
+                    string directory;
+                    try
+                    {
+                        if (!directories.MoveNext())
+                        {
+                            break;
+                        }
+
+                        directory = directories.Current;
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogWarning(ex, "Subsync sweep: failed to enumerate {Path}", root);
+                        break;
+                    }
+
+                    List<string> subtitlesInDirectory;
+                    try
+                    {
+                        subtitlesInDirectory = [..
+                            Directory.EnumerateFiles(directory,"*", SearchOption.TopDirectoryOnly)
+                                .Where(path => IsSubtitleFile(path, config))];
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogWarning(ex, "Subsync sweep: failed to list {Path}", directory);
+                        continue;
+                    }
+
+                    foreach (var group in
+                        subtitlesInDirectory
+                            .GroupBy(path => GetBaseName(Path.GetFileName(path)), StringComparer.OrdinalIgnoreCase))
+                    {
+                        yield return group.ToList();
+                    }
+                }
+            }
+        }
 
         /// <summary>
         /// Given a subtitle path, finds the matching video file and other
@@ -14,7 +78,7 @@ namespace Jellyfin.Subsync.Starter.Infrastructure
         /// "Movie.rus.srt" (language tagged) and "Movie.mkv" + "Movie.srt"
         /// naming, for any configured SubtitleExtensions.
         /// </summary>
-        public static IEnumerable<RelatedFile>? FindRelatedFiles(string subtitlePath, PluginConfiguration config)
+        internal static IEnumerable<RelatedFile>? FindRelatedFiles(string subtitlePath, PluginConfiguration config)
         {
             var dir = Path.GetDirectoryName(subtitlePath);
             if (dir is null)
@@ -25,7 +89,7 @@ namespace Jellyfin.Subsync.Starter.Infrastructure
             return FindRelatedFilesCore(subtitlePath, dir, config);
         }
 
-        private static IEnumerable<RelatedFile> FindRelatedFilesCore(string subtitlePath, string dir, PluginConfiguration config)
+        internal static IEnumerable<RelatedFile> FindRelatedFilesCore(string subtitlePath, string dir, PluginConfiguration config)
         {
             var subtitleName = Path.GetFileName(subtitlePath);
             var baseName = GetBaseName(subtitleName);
@@ -86,7 +150,7 @@ namespace Jellyfin.Subsync.Starter.Infrastructure
         /// temp/backup byproduct files (which carry the same extension as
         /// the subtitle they were derived from).
         /// </summary>
-        public static bool IsSubtitleFile(string path, PluginConfiguration config)
+        internal static bool IsSubtitleFile(string path, PluginConfiguration config)
         {
             var ext = Path.GetExtension(path).TrimStart('.');
             if (!config.SubtitleExtensions.Contains(ext, StringComparer.OrdinalIgnoreCase))
@@ -109,7 +173,7 @@ namespace Jellyfin.Subsync.Starter.Infrastructure
         /// right entry regardless of dictionary iteration order. Returns null
         /// if the path isn't under any configured entry.
         /// </summary>
-        public static (string Folder, string Filename)? ToSidecarAbsolute(string absolutePath, PluginConfiguration config)
+        internal static (string Folder, string Filename)? ToSidecarAbsolute(string absolutePath, PluginConfiguration config)
         {
             var dir = Path.GetDirectoryName(absolutePath) ?? string.Empty;
             var filename = Path.GetFileName(absolutePath);

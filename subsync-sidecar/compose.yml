@@ -32,4 +32,4 @@
 # Quick test once it's up:
 #   curl http://localhost:8420/health
 #   curl -X POST http://localhost:8420/sync -H 'Content-Type: application/json' \
-#     -d '{"folder":"path/to/library1/videoFilePath","videoFileName":"...mkv","subtitle_filename":"...lang.srt"}'
+#     -d '{"folder":"path/to/library1/videoFilePath","reference_filename":"...mkv","subtitle_filename":"...lang.srt"}'
