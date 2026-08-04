@@ -178,26 +178,26 @@ jobs:
           sbom: true
           provenance: true
 
-      - name: Update Docker Hub repository metadata
-        run: |
-          # Escape quotes in README
-          DESCRIPTION=$(sed 's/"/\\"/g' README.md)
+      # - name: Update Docker Hub repository metadata
+      #   run: |
+      #     # Escape quotes in README
+      #     DESCRIPTION=$(sed 's/"/\\"/g' README.md)
 
-          # Set short description
-          SHORT_DESC="Sidecar service for Jellyfin Subsync. Automatically re-syncs out-of-sync subtitles using ffsubsync."
+      #     # Set short description
+      #     SHORT_DESC="Sidecar service for Jellyfin Subsync. Automatically re-syncs out-of-sync subtitles using ffsubsync."
 
-          # Set category (must be one of Docker Hub’s allowed categories)
-          CATEGORY="Media"
+      #     # Set category (must be one of Docker Hub’s allowed categories)
+      #     CATEGORY="Media"
 
-          curl -X PATCH \
-            -H "Content-Type: application/json" \
-            -H "Authorization: Bearer ${{ secrets.DOCKERHUB_TOKEN }}" \
-            -d "{
-              \"full_description\": \"$DESCRIPTION\",
-              \"short_description\": \"$SHORT_DESC\",
-              \"category\": \"$CATEGORY\"
-            }" \
-            https://hub.docker.com/v2/repositories/${{ env.IMAGE }}
+      #     curl -X PATCH \
+      #       -H "Content-Type: application/json" \
+      #       -H "Authorization: Bearer ${{ secrets.DOCKERHUB_TOKEN }}" \
+      #       -d "{
+      #         \"full_description\": \"$DESCRIPTION\",
+      #         \"short_description\": \"$SHORT_DESC\",
+      #         \"category\": \"$CATEGORY\"
+      #       }" \
+      #       https://hub.docker.com/v2/repositories/${{ env.IMAGE }}
 
 
 
