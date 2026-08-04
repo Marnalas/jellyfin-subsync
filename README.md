@@ -85,7 +85,7 @@ What this changes for you:
   single video file for ffsubsync to align against. Previously these were
   attempted and failed at the sidecar.
 
-### #The sidecar image comes from Docker Hub
+#### The sidecar image comes from Docker Hub
 
 Up to 2.1.0.0 the sidecar had no published image: you copied
 `subsync-sidecar/` next to your compose file and built it yourself.
