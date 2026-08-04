@@ -31,13 +31,18 @@ namespace Jellyfin.Subsync.Starter.Infrastructure
         /// Ids are fetched up front (a Guid list costs a couple of MB even on a
         /// six-figure library) but items are hydrated one at a time, so syncing
         /// starts immediately instead of after a full-library materialisation.
+        /// That id list doubles as the progress denominator: every item is
+        /// credited to <paramref name="progress"/> here if it's skipped, or by
+        /// the caller once its group has been processed.
         /// </summary>
         internal IEnumerable<SubtitleSyncGroup> EnumerateGroups(
             PluginConfiguration config,
+            SweepProgress progress,
             CancellationToken cancellationToken)
         {
             var itemIds = _libraryManager.GetItemIds(BuildVideoItemsQuery());
             _logger.LogInformation("Subsync sweep: inspecting {Count} library video item(s)", itemIds.Count);
+            progress.SetTotal(itemIds.Count);
 
             for (var i = 0; i < itemIds.Count; ++i)
             {
@@ -45,8 +50,11 @@ namespace Jellyfin.Subsync.Starter.Infrastructure
 
                 var item = _libraryManager.GetItemById(itemIds[i]);
                 if (item is null)
+                {
                     // Deleted between the id query and here.
+                    progress.ItemDone();
                     continue;
+                }
 
                 IReadOnlyList<MediaStream> subtitleStreams;
                 try
@@ -63,12 +71,16 @@ namespace Jellyfin.Subsync.Starter.Infrastructure
                         ex,
                         "Subsync sweep: failed to read media streams for {Item}, skipping",
                         item.Path ?? item.Id.ToString());
+                    progress.ItemDone();
                     continue;
                 }
 
                 if (subtitleStreams.Count == 0)
+                {
                     // By far the common case on a typical library.
+                    progress.ItemDone();
                     continue;
+                }
 
                 // ISO / BDMV / VIDEO_TS: no single elementary video file for
                 // ffsubsync to align against. Read from metadata, not a stat.
@@ -94,6 +106,10 @@ namespace Jellyfin.Subsync.Starter.Infrastructure
 
                 if (work.Group is not null)
                     yield return work.Group;
+                else
+                    // Nothing to hand to the caller, so nobody else will credit
+                    // this item towards the progress bar.
+                    progress.ItemDone();
             }
         }
 

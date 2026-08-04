@@ -287,8 +287,11 @@ other Jellyfin task. That same page also gives you the manual "Run Now"
 trigger.
 
 The first run can be expected to run for multiple hours depending on the
-number of subtitle files to sync. The next runs should only sync the newly
-added subtitle files and therefore be faster. Execution can be sped up
+number of subtitle files to sync. The task's progress bar shows how much of
+the library has been inspected, which is not the same thing as how much time
+is left - see the note under [Known limitations](#known-limitations). The
+next runs should only sync the newly added subtitle files and therefore be
+faster. Execution can be sped up
 using MaxParallelJobs in the plugin settings and MAX_PARALLEL_JOBS in the
 sidecar container. Be mindful of your hardware capabilities and the other
 services running on it.
@@ -300,9 +303,10 @@ services running on it.
 2. Dashboard > Scheduled Tasks > "Scan Media Library" > Run Now, so Jellyfin
    has indexed the subtitle files. The sweep only sees what Jellyfin knows
    about.
-3. Dashboard > Scheduled Tasks > "Sync unsynced subtitles" > Run Now. Watch
-   the Jellyfin server log for `Subsync sweep: inspecting N library video
-   item(s)` followed by `Subsync: syncing ...` lines.
+3. Dashboard > Scheduled Tasks > "Sync unsynced subtitles" > Run Now. The
+   task's progress percentage climbs as the library is walked; watch the
+   Jellyfin server log for `Subsync sweep: inspecting N library video item(s)`
+   followed by `Subsync: syncing ...` lines.
 4. Run it again immediately after - it should finish fast and log nothing,
    since the skip-cache already has everything from step 3.
 
@@ -320,15 +324,14 @@ services running on it.
   internal metadata folder.
 - **ISO, BDMV and VIDEO_TS items are skipped**, with a warning. There's no
   single video file for ffsubsync to align against.
-- **The "Sync unsynced subtitles" task shows an indeterminate progress bar,
-  not a percentage.** This is intentional, not a bug: library items are
-  streamed one at a time instead of being collected upfront, so a huge
-  library never has to sit fully buffered in memory before syncing starts.
-  The item count is known up front, but how many subtitles they'll turn out
-  to have isn't - and it's the subtitles, not the items, that take the time.
-  An indeterminate bar is preferable to one that jumps unpredictably. Watch
-  the Jellyfin server log for `Subsync: syncing ...` lines if you want
-  visibility into what's actively happening.
+- **The sweep's progress percentage counts library items inspected, not
+  subtitles synced.** It's a real percentage of the library walked, but not a
+  time estimate: long runs of items with no subtitles fly past, then a single
+  item with several subtitles can hold the bar still for minutes. How many
+  subtitles the library holds isn't known until the items have been walked,
+  and it's the subtitles that take the time. Watch the Jellyfin server log for
+  `Subsync: syncing ...` lines if you want visibility into what's actively
+  happening.
 
 ## Thanks
 

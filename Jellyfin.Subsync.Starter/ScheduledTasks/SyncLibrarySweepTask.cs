@@ -40,6 +40,7 @@ namespace Jellyfin.Subsync.Starter.ScheduledTasks
             var config = Plugin.Instance!.Configuration;
             var maxParallelJobs = Math.Max(1, config.MaxParallelJobs);
             var processed = 0;
+            var sweepProgress = new SweepProgress(progress);
 
             // Up to maxParallelJobs items are processed in parallel; each still
             // fully round-trips (submit + poll to completion) within its own slot,
@@ -51,9 +52,13 @@ namespace Jellyfin.Subsync.Starter.ScheduledTasks
             // that instead - much faster than each of them re-syncing against the
             // video file independently. Groups are streamed lazily item by item
             // rather than collected upfront, so a huge library never sits fully
-            // buffered in memory before syncing starts.
+            // buffered in memory before syncing starts - only the id list is
+            // materialised, which is also what gives the progress bar its
+            // denominator. ForEachAsync pulls the next group only as a slot
+            // frees up rather than draining the enumerable, so how far the
+            // enumeration has got is a fair stand-in for how far the sweep has.
             await Parallel.ForEachAsync(
-                _source.EnumerateGroups(config, cancellationToken),
+                _source.EnumerateGroups(config, sweepProgress, cancellationToken),
                 new ParallelOptions { MaxDegreeOfParallelism = maxParallelJobs, CancellationToken = cancellationToken },
                 async (group, ct) =>
                 {
@@ -78,9 +83,19 @@ namespace Jellyfin.Subsync.Starter.ScheduledTasks
 
                         Interlocked.Increment(ref processed);
                     }
+
+                    // Deliberately not in a finally: a rethrown cancellation
+                    // means this item's remaining subtitles were abandoned, and
+                    // crediting it would overstate how far the sweep got.
+                    sweepProgress.ItemDone();
                 }).ConfigureAwait(false);
 
             _logger.LogInformation("Subsync sweep: checked the library, {Count} subtitle(s) touched", processed);
+
+            // An empty library never reports anything above (there's no
+            // denominator to divide by), and rounding down can leave the bar a
+            // fraction short on the last item.
+            progress.Report(100);
         }
 
         public IEnumerable<TaskTriggerInfo> GetDefaultTriggers()
