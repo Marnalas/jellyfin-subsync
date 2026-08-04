@@ -4,7 +4,7 @@
 # later, that's the point to revisit this Dockerfile (nvidia/cuda base,
 # torch, --gpus all in compose) - deliberately not carrying that weight
 # until it's actually used.
-FROM dhi/python:3.14-alpine-sfw-dev
+FROM dhi.io/python:3.14-alpine-sfw-dev
 
 ENV PYTHONUNBUFFERED=1
 
