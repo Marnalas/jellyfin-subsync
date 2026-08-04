@@ -8,7 +8,14 @@ FROM dhi.io/python:3.14-alpine-sfw-dev
 
 ENV PYTHONUNBUFFERED=1
 
-RUN apk add --no-cache ffmpeg
+# Add ffmpeg + build deps for webrtcvad-wheels
+RUN apk add --no-cache \
+    ffmpeg \
+    python3-dev \
+    musl-dev \
+    gcc \
+    g++ \
+    make
 
 WORKDIR /app
 COPY requirements.txt .
