@@ -98,13 +98,69 @@ jobs:
             echo "should_release=true" >> $GITHUB_OUTPUT
           fi
 
+  # ── Build + push the sidecar image ──────────────────────────────────
+  # Runs on every push (not just release-worthy ones) so a sidecar-only
+  # change still ships a new `latest`, and runs alongside the plugin release
+  # job rather than after it. The two suites are the exception: both jobs wait on
+  # both of them, because plugin and sidecar ship as one protocol and neither
+  # should be published while the other's tests are red.
+  # The Docker Hub login happens *before* the build, not just before
+  # the push: the Dockerfile's base image is a Docker Hardened Image, which
+  # is only pullable by an entitled account, so an anonymous build would
+  # already fail on the FROM.
+  sidecar:
+    needs: [test, test-sidecar, check-version]
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    env:
+      IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/jellyfin-subsync-sidecar
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Compute image tags
+        id: tags
+        env:
+          SHOULD_RELEASE: ${{ needs.check-version.outputs.should_release }}
+          VERSION: ${{ needs.check-version.outputs.version }}
+        run: |
+          # `latest` and the commit sha move on every push; the version tag is
+          # only published on a release-worthy push, so an already-released
+          # image tag is never overwritten with different content.
+          {
+            echo "tags<<EOF"
+            echo "${IMAGE}:latest"
+            echo "${IMAGE}:sha-${GITHUB_SHA::7}"
+            if [ "$SHOULD_RELEASE" = "true" ]; then
+              echo "${IMAGE}:${VERSION}"
+            fi
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: subsync-sidecar
+          push: true
+          tags: ${{ steps.tags.outputs.tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
   # ── Build plugin + create release ──────────────────────────────────
   # Gated on both suites, not just the plugin's. The two halves ship as one
   # protocol - a release that tags and publishes a plugin while the sidecar's
-  # own tests are failing puts a version out there with nothing known-compatible
-  # to talk to, and users auto-update into it.
+  # own tests or build are failing puts a version out there with nothing
+  # known-compatible to talk to, and users auto-update into it.
   build:
-    needs: [test, test-sidecar, check-version]
+    needs: [test, test-sidecar, check-version, build]
     if: github.event_name != 'pull_request' && needs.check-version.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     steps:
@@ -239,60 +295,3 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v5
-
-  # ── Build + push the sidecar image ──────────────────────────────────
-  # Runs on every push (not just release-worthy ones) so a sidecar-only
-  # change still ships a new `latest`, and runs alongside the plugin release
-  # job rather than after it - a build failure on either side doesn't hold up
-  # the other's publish. The two suites are the exception: both jobs wait on
-  # both of them, because plugin and sidecar ship as one protocol and neither
-  # should be published while the other's tests are red.
-  # The Docker Hub login happens *before* the build, not just before
-  # the push: the Dockerfile's base image is a Docker Hardened Image, which
-  # is only pullable by an entitled account, so an anonymous build would
-  # already fail on the FROM.
-  sidecar:
-    needs: [test, test-sidecar, check-version]
-    if: github.event_name != 'pull_request'
-    runs-on: ubuntu-latest
-    env:
-      IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/jellyfin-subsync-sidecar
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Set up Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Compute image tags
-        id: tags
-        env:
-          SHOULD_RELEASE: ${{ needs.check-version.outputs.should_release }}
-          VERSION: ${{ needs.check-version.outputs.version }}
-        run: |
-          # `latest` and the commit sha move on every push; the version tag is
-          # only published on a release-worthy push, so an already-released
-          # image tag is never overwritten with different content.
-          {
-            echo "tags<<EOF"
-            echo "${IMAGE}:latest"
-            echo "${IMAGE}:sha-${GITHUB_SHA::7}"
-            if [ "$SHOULD_RELEASE" = "true" ]; then
-              echo "${IMAGE}:${VERSION}"
-            fi
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Build and push
-        uses: docker/build-push-action@v6
-        with:
-          context: subsync-sidecar
-          push: true
-          tags: ${{ steps.tags.outputs.tags }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
