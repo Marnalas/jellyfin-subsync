@@ -17,7 +17,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\Jellyfin.Subsync.Starter.csproj" />
+    <ProjectReference Include="..\Jellyfin.Subsync.Starter\Jellyfin.Subsync.Starter.csproj" />
   </ItemGroup>
 
 </Project>

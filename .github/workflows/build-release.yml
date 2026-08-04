@@ -6,6 +6,7 @@ on:
     paths:
       - '**/*.cs'
       - '**/*.csproj'
+      - '**/*.sln'
       - 'Directory.Build.props'
       - '.github/workflows/build-release.yml'
   # Pull requests run the tests only - every release-side job is guarded on
@@ -15,6 +16,7 @@ on:
     paths:
       - '**/*.cs'
       - '**/*.csproj'
+      - '**/*.sln'
       - 'Directory.Build.props'
       - '.github/workflows/build-release.yml'
   workflow_dispatch:
@@ -43,7 +45,7 @@ jobs:
           dotnet-version: '9.0.x'
 
       - name: Run tests
-        run: dotnet test tests/Jellyfin.Subsync.Starter.Tests/Jellyfin.Subsync.Starter.Tests.csproj --configuration Release
+        run: dotnet test Jellyfin.Subsync.Starter.Tests/Jellyfin.Subsync.Starter.Tests.csproj --configuration Release
 
   # ── Check if release already exists ─────────────────────────────────
   check-version:
@@ -110,8 +112,8 @@ jobs:
           fi
           TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           mkdir -p release
-          cp bin/Release/net9.0/Jellyfin.Subsync.Starter.dll release/
-          cp bin/Release/net9.0/Jellyfin.Subsync.Starter.pdb release/
+          cp Jellyfin.Subsync.Starter/bin/Release/net9.0/Jellyfin.Subsync.Starter.dll release/
+          cp Jellyfin.Subsync.Starter/bin/Release/net9.0/Jellyfin.Subsync.Starter.pdb release/
           jq -n \
             --arg version "$VERSION" \
             --arg timestamp "$TIMESTAMP" \

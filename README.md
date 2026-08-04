@@ -13,7 +13,7 @@ A Jellyfin plugin that automatically re-syncs out-of-sync subtitles against
 their video, using [ffsubsync](https://github.com/smacke/ffsubsync). It's
 made of two pieces:
 
-- **The plugin** (this repo's root) - runs inside Jellyfin. A scheduled task
+- **The plugin** (`Jellyfin.Subsync.Starter/`) - runs inside Jellyfin. A scheduled task
   sweeps your configured library paths for subtitle files (`.srt`, `.ass`,
   `.ssa`, `.vtt`, `.sub` by default - configurable), matches each one to
   its video, and skips anything already synced (tracked by content hash so

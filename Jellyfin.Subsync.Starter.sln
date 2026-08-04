@@ -1,0 +1,48 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Jellyfin.Subsync.Starter", "Jellyfin.Subsync.Starter\Jellyfin.Subsync.Starter.csproj", "{C17C7904-1891-4192-A307-650D3891B994}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Jellyfin.Subsync.Starter.Tests", "Jellyfin.Subsync.Starter.Tests\Jellyfin.Subsync.Starter.Tests.csproj", "{6ACCFF57-157A-435A-B9A1-FA983BE060B7}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Debug|x64 = Debug|x64
+		Debug|x86 = Debug|x86
+		Release|Any CPU = Release|Any CPU
+		Release|x64 = Release|x64
+		Release|x86 = Release|x86
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{C17C7904-1891-4192-A307-650D3891B994}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C17C7904-1891-4192-A307-650D3891B994}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C17C7904-1891-4192-A307-650D3891B994}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{C17C7904-1891-4192-A307-650D3891B994}.Debug|x64.Build.0 = Debug|Any CPU
+		{C17C7904-1891-4192-A307-650D3891B994}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{C17C7904-1891-4192-A307-650D3891B994}.Debug|x86.Build.0 = Debug|Any CPU
+		{C17C7904-1891-4192-A307-650D3891B994}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C17C7904-1891-4192-A307-650D3891B994}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C17C7904-1891-4192-A307-650D3891B994}.Release|x64.ActiveCfg = Release|Any CPU
+		{C17C7904-1891-4192-A307-650D3891B994}.Release|x64.Build.0 = Release|Any CPU
+		{C17C7904-1891-4192-A307-650D3891B994}.Release|x86.ActiveCfg = Release|Any CPU
+		{C17C7904-1891-4192-A307-650D3891B994}.Release|x86.Build.0 = Release|Any CPU
+		{6ACCFF57-157A-435A-B9A1-FA983BE060B7}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{6ACCFF57-157A-435A-B9A1-FA983BE060B7}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{6ACCFF57-157A-435A-B9A1-FA983BE060B7}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{6ACCFF57-157A-435A-B9A1-FA983BE060B7}.Debug|x64.Build.0 = Debug|Any CPU
+		{6ACCFF57-157A-435A-B9A1-FA983BE060B7}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{6ACCFF57-157A-435A-B9A1-FA983BE060B7}.Debug|x86.Build.0 = Debug|Any CPU
+		{6ACCFF57-157A-435A-B9A1-FA983BE060B7}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{6ACCFF57-157A-435A-B9A1-FA983BE060B7}.Release|Any CPU.Build.0 = Release|Any CPU
+		{6ACCFF57-157A-435A-B9A1-FA983BE060B7}.Release|x64.ActiveCfg = Release|Any CPU
+		{6ACCFF57-157A-435A-B9A1-FA983BE060B7}.Release|x64.Build.0 = Release|Any CPU
+		{6ACCFF57-157A-435A-B9A1-FA983BE060B7}.Release|x86.ActiveCfg = Release|Any CPU
+		{6ACCFF57-157A-435A-B9A1-FA983BE060B7}.Release|x86.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal
