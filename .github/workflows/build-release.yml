@@ -110,7 +110,7 @@ jobs:
   # already fail on the FROM.
   sidecar:
     needs: [test, test-sidecar, check-version]
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && needs.check-version.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     env:
       IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/jellyfin-subsync-sidecar
