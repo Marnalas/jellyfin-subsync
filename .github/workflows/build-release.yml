@@ -114,6 +114,10 @@ jobs:
     runs-on: ubuntu-latest
     env:
       IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/jellyfin-subsync-sidecar
+    permissions:
+      id-token: write
+      contents: read
+      packages: write
     steps:
       - uses: actions/checkout@v7
 
@@ -145,14 +149,35 @@ jobs:
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ IMAGE }}
+          tags: ${{ steps.tags.outputs.tags }}
+          flavor: |
+            latest=true
+          labels: |
+            org.opencontainers.image.title=Subsync Sidecar
+            org.opencontainers.image.description=Automatically re-syncs out-of-sync subtitles using ffsubsync.labels: |
+            org.opencontainers.image.source=https://github.com/Marnalas/jellyfin-subsync
+            org.opencontainers.image.documentation=https://github.com/Marnalas/jellyfin-subsync
+          annotations: |
+            org.opencontainers.image.readme-file=README.md
+
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
           context: subsync-sidecar
           push: true
           tags: ${{ steps.tags.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          annotations: ${{ steps.meta.outputs.annotations }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          sbom: true
+          provenance: true
+
 
   # ── Build plugin + create release ──────────────────────────────────
   # Gated on both suites, not just the plugin's. The two halves ship as one
