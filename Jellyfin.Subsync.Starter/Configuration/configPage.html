@@ -54,7 +54,28 @@
                 </div>
 
                 <div class="inputContainer">
-                    <input is="emby-input" type="number" id="JobTimeoutSeconds" label="Job timeout (seconds)" />
+                    <input is="emby-input" type="number" id="JobTimeoutSeconds" label="Job timeout (seconds)" min="1" />
+                    <div class="fieldDescription">
+                        How long a single sync may spend <strong>running</strong> on the sidecar.
+                    </div>
+                </div>
+
+                <div class="inputContainer">
+                    <input is="emby-input" type="number" id="QueueWaitTimeoutSeconds" label="Queue wait timeout (seconds)" min="0" />
+                    <div class="fieldDescription">
+                        How long a submitted job may sit queued on the sidecar before this plugin gives up
+                        and cancels it. Reaching this means more work is being submitted than the sidecar
+                        has workers for - compare "Max parallel jobs" below with the sidecar's
+                        <code>MAX_PARALLEL_JOBS</code>. Set to 0 to wait indefinitely.
+                    </div>
+                </div>
+
+                <div class="inputContainer">
+                    <input is="emby-input" type="number" id="SidecarRequestTimeoutSeconds" label="Sidecar request timeout (seconds)" min="1" />
+                    <div class="fieldDescription">
+                        Timeout for one individual HTTP call to the sidecar (submitting, polling, cancelling),
+                        not for the sync itself. Rarely needs changing.
+                    </div>
                 </div>
 
                 <div class="inputContainer">
@@ -135,6 +156,11 @@
                         document.querySelector('#SubtitleExtensions').value = arrayToCsv(config.SubtitleExtensions);
                         document.querySelector('#PollIntervalMilliseconds').value = config.PollIntervalMilliseconds || 3000;
                         document.querySelector('#JobTimeoutSeconds').value = config.JobTimeoutSeconds || 1800;
+                        // Not `|| 3600`: 0 is a legitimate value here (wait
+                        // indefinitely) and would otherwise be shown as an hour.
+                        document.querySelector('#QueueWaitTimeoutSeconds').value =
+                            typeof config.QueueWaitTimeoutSeconds === 'number' ? config.QueueWaitTimeoutSeconds : 3600;
+                        document.querySelector('#SidecarRequestTimeoutSeconds').value = config.SidecarRequestTimeoutSeconds || 30;
                         document.querySelector('#MaxParallelJobs').value = config.MaxParallelJobs || 1;
                         Dashboard.hideLoadingMsg();
                     });
@@ -150,6 +176,11 @@
                         config.SubtitleExtensions = csvToArray(document.querySelector('#SubtitleExtensions').value);
                         config.PollIntervalMilliseconds = parseInt(document.querySelector('#PollIntervalMilliseconds').value, 10) || 3000;
                         config.JobTimeoutSeconds = parseInt(document.querySelector('#JobTimeoutSeconds').value, 10) || 1800;
+                        // Same reason as on load: `|| 3600` would quietly turn a
+                        // deliberate 0 ("wait indefinitely") back into an hour.
+                        var queueWait = parseInt(document.querySelector('#QueueWaitTimeoutSeconds').value, 10);
+                        config.QueueWaitTimeoutSeconds = isNaN(queueWait) || queueWait < 0 ? 3600 : queueWait;
+                        config.SidecarRequestTimeoutSeconds = parseInt(document.querySelector('#SidecarRequestTimeoutSeconds').value, 10) || 30;
                         config.MaxParallelJobs = Math.max(1, parseInt(document.querySelector('#MaxParallelJobs').value, 10) || 1);
 
                         ApiClient.updatePluginConfiguration(pluginId, config).then(function (result) {

@@ -45,7 +45,9 @@ No GPU is required - the default `webrtc` VAD `ffsubsync` uses is CPU-only.
 
 ## Breaking changes
 
-### 3.0.0.0 - subtitles come from the Jellyfin library, not a filesystem walk
+### 3.0.0.0
+
+#### Subtitles come from the Jellyfin library, not a filesystem walk
 
 Up to 2.1.0.0 the plugin walked your watched paths itself and worked out
 which subtitle belonged to which video from the filenames, using a pattern
@@ -83,7 +85,7 @@ What this changes for you:
   single video file for ffsubsync to align against. Previously these were
   attempted and failed at the sidecar.
 
-### 3.0.0.0 - the sidecar image comes from Docker Hub
+### #The sidecar image comes from Docker Hub
 
 Up to 2.1.0.0 the sidecar had no published image: you copied
 `subsync-sidecar/` next to your compose file and built it yourself.
@@ -169,6 +171,8 @@ services:
     environment:
       # Any extra arg you want added to the ffsubsync commands (e.g.
       # --max-duration-seconds, --extract-audio-first, --multi-segment-sync, etc
+      # Parsed with shell quoting rules, so quote any argument containing a
+      # space: --vad "webrtc x"
       FFSUBSYNC_EXTRA_ARGS: ""
       # How many sync jobs run at once. Leave empty or set to 0
       # to auto-detect (cpu_count - 1); recommended to set explicitly
@@ -179,6 +183,12 @@ services:
       # and no copy is kept. Set to "true" to keep a
       # "<name>_original_backup.srt" copy of the pre-sync subtitle.
       KEEP_ORIGINAL_SUBTITLE_BACKUP: false
+      # Optional tuning knobs, shown with their defaults - see
+      # "Timeouts and job budgets" below before changing them.
+      # JOB_TIMEOUT_SECONDS: 1800        # used only by plugins older than 3.0.0.0
+      # MAX_JOB_TIMEOUT_SECONDS: 7200    # ceiling on what the plugin may ask for
+      # JOB_RETENTION_SECONDS: 3600      # how long finished jobs stay queryable
+      # MAX_JOB_HISTORY: 500             # cap on remembered jobs
     volumes:
       # Mounting each library at the *same* in-container path as jellyfin
       # above means the plugin's WatchedPathsMaps entries can be simple
@@ -228,8 +238,13 @@ Then in Jellyfin, go to Dashboard > Plugins > Subsync and set:
   independent - libraries don't need to share a common root on either side.
   This is translation only - it doesn't choose what gets swept - but every
   library path needs a line here, or its subtitles are skipped with a warning.
-- Subtitle extensions, poll interval, and job timeout, if you want anything
-  other than the defaults.
+- Subtitle extensions and poll interval, if you want anything other than the
+  defaults.
+- **Job timeout** (default 1800s) and **Queue wait timeout** (default 3600s) -
+  the two budgets described under [Timeouts and job
+  budgets](#timeouts-and-job-budgets). The defaults suit almost everyone.
+- **Sidecar request timeout** (default 30s) - applies to one individual HTTP
+  call, not to a sync. Rarely needs changing.
 - **Max parallel jobs** - how many subtitles the sweep submits to the
   sidecar at once (default 1). Only raise this alongside the sidecar's own
   `MAX_PARALLEL_JOBS`; the two need to be sized together, see the config
@@ -272,6 +287,8 @@ an identity map:
   </SubtitleExtensions>
   <PollIntervalMilliseconds>3000</PollIntervalMilliseconds>
   <JobTimeoutSeconds>1800</JobTimeoutSeconds>
+  <QueueWaitTimeoutSeconds>3600</QueueWaitTimeoutSeconds>
+  <SidecarRequestTimeoutSeconds>30</SidecarRequestTimeoutSeconds>
   <MaxParallelJobs>4</MaxParallelJobs>
 </PluginConfiguration>
 ```
@@ -296,10 +313,39 @@ using MaxParallelJobs in the plugin settings and MAX_PARALLEL_JOBS in the
 sidecar container. Be mindful of your hardware capabilities and the other
 services running on it.
 
+## Timeouts and job budgets
+
+Two independent budgets, because they measure different things:
+
+| Budget | Setting | Default | Enforced by | Covers |
+| --- | --- | --- | --- | --- |
+| Run | **Job timeout** | 1800s | the sidecar | time a job spends actually running ffsubsync |
+| Queue wait | **Queue wait timeout** | 3600s | the plugin | time a job spends waiting for a free worker (0 = wait forever) |
+
+The plugin sends its run budget with every job, and the sidecar is the side
+that enforces it - the plugin deliberately waits a little longer than the
+number it sent, so the sidecar is always the one to declare a timeout. That
+ordering is what stops a job from being abandoned while it's still running and
+then overwriting the subtitle afterwards, which used to leave a file that got
+re-synced on every subsequent sweep.
+
+Queue time is not charged against the run budget. If jobs are queuing for
+longer than an hour, the plugin's **Max parallel jobs** is likely set well above
+the sidecar's `MAX_PARALLEL_JOBS`; the log message names both. When the plugin
+does give up, it tells the sidecar to drop the job, so the result is discarded
+rather than written over the subtitle.
+
+**Version skew:** with a sidecar older than 3.0.0.0, the run budget you set here
+isn't sent, and that sidecar applies its own hardcoded 30 minutes instead. Jobs
+still fail cleanly - the setting simply won't take effect until the sidecar is
+updated.
+
 ## Testing it
 
 1. Confirm the sidecar is reachable: `curl <SidecarUrl>/health` from inside
-   the Jellyfin container.
+   the Jellyfin container. The sweep now checks this itself and **aborts with a
+   failed task** if the sidecar doesn't answer, rather than producing one
+   timeout per subtitle for the length of the run.
 2. Dashboard > Scheduled Tasks > "Scan Media Library" > Run Now, so Jellyfin
    has indexed the subtitle files. The sweep only sees what Jellyfin knows
    about.

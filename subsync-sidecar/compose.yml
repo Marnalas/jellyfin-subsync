@@ -6,7 +6,7 @@
 
   subsync-sidecar:
     # Published image - no local build needed. Pin to a plugin version
-    # (e.g. :2.2.0.0) instead of :latest if you'd rather upgrade on purpose.
+    # (e.g. :3.0.0.0) instead of :latest if you'd rather upgrade on purpose.
     image: marnalas/jellyfin-subsync-sidecar:latest
     container_name: subsync-sidecar
     restart: unless-stopped
@@ -17,6 +17,8 @@
     environment:
       # Any extra arg you want added to the ffsubsync commands (e.g.
       # --max-duration-seconds, --extract-audio-first, --multi-segment-sync, etc
+      # Parsed with shell quoting rules, so an argument containing a space
+      # works if you quote it: --vad "webrtc x"
       FFSUBSYNC_EXTRA_ARGS: ""
       # How many sync jobs run at once. Leave empty or set to 0
       # to auto-detect (cpu_count - 1); set explicitly if this container has a `--cpus`
@@ -26,6 +28,23 @@
       # and no copy is kept. Set to "true" to keep a
       # "<name>_original_backup.srt" copy of the pre-sync subtitle.
       KEEP_ORIGINAL_SUBTITLE_BACKUP: false
+
+      # --- the rest are tuning knobs you can usually leave alone ---
+
+      # How long one ffsubsync run may take when the plugin doesn't say.
+      # Plugin 3.0.0.0+ sends its own "Job timeout" setting with every job, so
+      # this only applies to older plugins. Default 1800.
+      # JOB_TIMEOUT_SECONDS: 1800
+      # Ceiling on what the plugin is allowed to ask for, so a mistyped plugin
+      # setting can't tie up a worker thread for a day. Default 7200.
+      # MAX_JOB_TIMEOUT_SECONDS: 7200
+      # How long finished jobs stay queryable at /jobs/{id}, and how many are
+      # kept at most. The defaults are far larger than anything needed - they
+      # exist to stop an always-on container from growing without bound.
+      # Don't lower JOB_RETENTION_SECONDS near the plugin's poll interval: the
+      # plugin reads "job not found" as a failed sync.
+      # JOB_RETENTION_SECONDS: 3600
+      # MAX_JOB_HISTORY: 500
     volumes:
       - path/to/library1:BASE_PATH/library1
       - path/to/library2:BASE_PATH/library2

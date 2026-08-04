@@ -33,8 +33,31 @@ namespace Jellyfin.Subsync.Starter.Configuration
         /// <summary>How often the sidecar job status is polled while waiting for a sync to finish.</summary>
         public int PollIntervalMilliseconds { get; set; } = 3000;
 
-        /// <summary>Max time to wait for a single sync job before giving up.</summary>
+        /// <summary>
+        /// Max time a single sync may spend actually running on the sidecar.
+        /// Sent to the sidecar with the job, which enforces it and stops
+        /// ffsubsync at that point; this side deliberately waits a little
+        /// longer, so the sidecar is always the one to declare the timeout.
+        /// Time the job spends queued behind other jobs is NOT charged against
+        /// this - see QueueWaitTimeoutSeconds.
+        /// </summary>
         public int JobTimeoutSeconds { get; set; } = 1800;
+
+        /// <summary>
+        /// Max time a submitted job may sit queued on the sidecar before this
+        /// side gives up and cancels it. Hitting this means more work is being
+        /// submitted than the sidecar has workers for - compare MaxParallelJobs
+        /// below with the sidecar's MAX_PARALLEL_JOBS. 0 waits indefinitely.
+        /// </summary>
+        public int QueueWaitTimeoutSeconds { get; set; } = 3600;
+
+        /// <summary>
+        /// Timeout for one individual HTTP call to the sidecar (submit, poll,
+        /// cancel) - not for the sync job as a whole. Guards against a poll
+        /// hanging on a half-open connection; HttpClient's own default of 100s
+        /// applies per call too, this just makes it explicit and shorter.
+        /// </summary>
+        public int SidecarRequestTimeoutSeconds { get; set; } = 30;
 
         /// <summary>
         /// How many subtitle files the sweep task submits to the sidecar at

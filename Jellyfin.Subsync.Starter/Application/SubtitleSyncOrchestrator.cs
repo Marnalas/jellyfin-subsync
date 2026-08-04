@@ -1,13 +1,14 @@
+using Jellyfin.Subsync.Starter.Configuration;
 using Jellyfin.Subsync.Starter.Domain;
 using Jellyfin.Subsync.Starter.Infrastructure;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Subsync.Starter.Application
 {
-    internal class SubtitleSyncOrchestrator(SubsyncClient client, SkipCache skipCache, ILogger logger)
+    internal class SubtitleSyncOrchestrator(ISubsyncClient client, ISkipCache skipCache, ILogger logger)
     {
-        private readonly SubsyncClient _client = client;
-        private readonly SkipCache _skipCache = skipCache;
+        private readonly ISubsyncClient _client = client;
+        private readonly ISkipCache _skipCache = skipCache;
         private readonly ILogger _logger = logger;
 
         /// <summary>
@@ -18,15 +19,21 @@ namespace Jellyfin.Subsync.Starter.Application
         /// folder the sidecar's /sync accepts. Safe to call concurrently - the
         /// sweep task invokes this from multiple parallel workers at once.
         /// </summary>
-        internal async Task ProcessAsync(SubtitleSyncGroup group, string subtitlePath, CancellationToken cancellationToken)
+        /// <returns>
+        /// How the sync ended, or null when nothing was attempted (the file is
+        /// gone, already synced, or outside every configured path mapping).
+        /// </returns>
+        internal async Task<SyncOutcome?> ProcessAsync(
+            PluginConfiguration config,
+            SubtitleSyncGroup group,
+            string subtitlePath,
+            CancellationToken cancellationToken)
         {
-            var config = Plugin.Instance!.Configuration;
-
             // The library row can be stale: the file may have been deleted or
             // replaced since the last scan. IsAlreadySynced hashes the file and
             // throws if it's gone, so this guard is load-bearing.
             if (!File.Exists(subtitlePath) || _skipCache.IsAlreadySynced(subtitlePath))
-                return;
+                return null;
 
             var referencePath = SubtitleWorkBuilder.ChooseReference(
                 subtitlePath,
@@ -38,7 +45,7 @@ namespace Jellyfin.Subsync.Starter.Application
             if (subtitleMapping is null || referenceFileMapping is null)
             {
                 _logger.LogWarning("Subsync: {Subtitle} is not under any configured WatchedPathsMaps entry, skipping", subtitlePath);
-                return;
+                return null;
             }
 
             var (folder, subtitleFilename) = subtitleMapping.Value;
@@ -46,11 +53,17 @@ namespace Jellyfin.Subsync.Starter.Application
 
             _logger.LogInformation("Subsync: syncing {Subtitle} against {Reference}", subtitleFilename, referenceFilename);
 
-            var ok = await _client.SyncAndWaitAsync(folder, referenceFilename, subtitleFilename, cancellationToken)
+            var outcome = await _client
+                .SyncAndWaitAsync(config, folder, referenceFilename, subtitleFilename, cancellationToken)
                 .ConfigureAwait(false);
 
-            if (ok)
+            // Only a confirmed sync is recorded. A job we timed out on or
+            // cancelled may still be finishing on the sidecar, and marking it
+            // here would pin a hash for content that hasn't been written yet.
+            if (outcome == SyncOutcome.Synced)
                 _skipCache.MarkSynced(subtitlePath);
+
+            return outcome;
         }
     }
 }

@@ -1,3 +1,4 @@
+using Jellyfin.Subsync.Starter.Configuration;
 using Jellyfin.Subsync.Starter.Infrastructure;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller;
@@ -16,16 +17,20 @@ namespace Jellyfin.Subsync.Starter
     {
         public void RegisterServices(IServiceCollection serviceCollection, IServerApplicationHost applicationHost)
         {
-            serviceCollection.AddSingleton(provider =>
+            serviceCollection.AddSingleton<IPluginConfigurationProvider, PluginConfigurationProvider>();
+
+            serviceCollection.AddSingleton<ISkipCache>(provider =>
             {
                 var applicationPaths = provider.GetRequiredService<IApplicationPaths>();
                 var dataFolder = Path.Combine(applicationPaths.DataPath, "subsync-starter");
                 var logger = provider.GetRequiredService<ILogger<SkipCache>>();
                 return new SkipCache(dataFolder, logger);
             });
+            
+            // SubsyncClient asks the factory per request.
+            serviceCollection.AddHttpClient(nameof(SubsyncClient));
 
-            serviceCollection.AddHttpClient();
-            serviceCollection.AddSingleton(provider =>
+            serviceCollection.AddSingleton<ISubsyncClient>(provider =>
             {
                 var httpClientFactory = provider.GetRequiredService<IHttpClientFactory>();
                 var logger = provider.GetRequiredService<ILogger<SubsyncClient>>();

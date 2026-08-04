@@ -1,0 +1,15 @@
+# The build context is this directory (see the `sidecar` job in
+# .github/workflows/build-release.yml), so this is where the excludes belong -
+# a .dockerignore at the repo root would never be read.
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Documentation and the compose fragment are for humans reading the repo; the
+# image only needs requirements.txt and app.py.
+compose.yml
+*.md
