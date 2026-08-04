@@ -208,22 +208,24 @@ jobs:
             --arg version "$VERSION" \
             --arg timestamp "$TIMESTAMP" \
             --arg changelog "$CHANGELOG" \
-            '{
-              category: "Subtitles",
-              changelog: $changelog,
-              description: "Automatically re-syncs out-of-sync subtitles using ffsubsync.",
-              guid: "6e9cb927-95fc-4ab9-8267-c896060ae50e",
-              name: "SubsyncStarter",
-              overview: "Syncs the external subtitles in your Jellyfin libraries, using the subsync-sidecar service (ffsubsync) to fix any timing drift. Defaults as a scheduled sweep with a skip-cache so repeat runs are cheap, and doubles as a manual 'Run Now' trigger from Dashboard > Scheduled Tasks.",
-              owner: "Marnalas",
-              targetAbi: "10.11.0.0",
-              timestamp: $timestamp,
-              version: $version,
-              status: "Active",
-              autoUpdate: true,
-              imagePath: "",
-              assemblies: ["Jellyfin.Subsync.Starter.dll"]
-            }' > release/meta.json
+          <<'EOF' > release/meta.json
+          {
+            category: "Subtitles",
+            changelog: $changelog,
+            description: "Automatically re-syncs out-of-sync subtitles using ffsubsync.",
+            guid: "6e9cb927-95fc-4ab9-8267-c896060ae50e",
+            name: "SubsyncStarter",
+            overview: "Syncs the external subtitles in your Jellyfin libraries, using the subsync-sidecar service (ffsubsync) to fix any timing drift. Defaults as a scheduled sweep with a skip-cache so repeat runs are cheap, and doubles as a manual 'Run Now' trigger from Dashboard > Scheduled Tasks.",
+            owner: "Marnalas",
+            targetAbi: "10.11.0.0",
+            timestamp: $timestamp,
+            version: $version,
+            status: "Active",
+            autoUpdate: true,
+            imagePath: "",
+            assemblies: ["Jellyfin.Subsync.Starter.dll"]
+          }
+          EOF
           cd release && zip -r ../SubsyncStarter_${VERSION}.zip .
 
       - name: Calculate checksum
