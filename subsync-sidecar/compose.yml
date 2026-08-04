@@ -5,8 +5,10 @@
 # point to add gpu reservation here.
 
   subsync-sidecar:
+    # Published image - no local build needed. Pin to a plugin version
+    # (e.g. :2.2.0.0) instead of :latest if you'd rather upgrade on purpose.
+    image: marnalas/jellyfin-subsync-sidecar:latest
     container_name: subsync-sidecar
-    build: ./subsync-sidecar   # path to the folder containing the Dockerfile
     restart: unless-stopped
     # user: "UID:GID" # optional, should match jellyfin configuration
     # ports:

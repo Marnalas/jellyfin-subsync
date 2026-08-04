@@ -40,30 +40,59 @@ made of two pieces:
 
 No GPU is required - the default `webrtc` VAD `ffsubsync` uses is CPU-only.
 
+## Breaking changes
+
+### 2.2.0.0 - the sidecar image comes from Docker Hub
+
+Up to 2.1.0.0 the sidecar had no published image: you copied
+`subsync-sidecar/` next to your compose file and built it yourself.
+From 2.2.0.0 the image is built by CI and published to
+[`marnalas/jellyfin-subsync-sidecar`](https://hub.docker.com/r/marnalas/jellyfin-subsync-sidecar).
+
+**If you're upgrading, point the service at the published image and delete `subsync-sidecar/`:**
+
+```diff
+   jellyfin-subsync:
+-    build: ./subsync-sidecar   # path to the folder containing the Dockerfile
++    image: marnalas/jellyfin-subsync-sidecar:latest
+```
+
+```bash
+docker compose pull jellyfin-subsync
+docker compose up -d jellyfin-subsync
+```
+
+You can now also drop the local copy of `subsync-sidecar/` - only the
+compose service block is still needed.
+
+Available tags:
+
+| Tag | Points at |
+| --- | --- |
+| `latest` | the newest build of `main` |
+| `2.2.0.0`, `2.3.0.0`, ... | the sidecar as released alongside that plugin version - pin this if you'd rather upgrade on purpose |
+| `sha-<short-sha>` | one specific commit |
+
+Nothing changes on the plugin side: `Sidecar URL`, watched paths, volumes
+and env vars all keep working as they did. Building the image yourself
+still works too - the `Dockerfile` stays in the repo - it's just no longer
+the documented path.
+
 ## Installing
 
 ### 1. Sidecar
 
-The sidecar is built and run as its own container, alongside Jellyfin, in
-the **same `docker-compose.yml` that already defines your `jellyfin`
-service** - it is not a standalone stack with its own compose file.
+The sidecar is run as its own container, alongside Jellyfin, in the **same
+`docker-compose.yml` that already defines your `jellyfin` service** - it
+is not a standalone stack with its own compose file.
 
-Copy every file from this repo's `subsync-sidecar/` directory **except
-`compose.yml`** (i.e. `app.py`, `Dockerfile`, `requirements.txt`) into a
-folder (e.g. `subsync-sidecar/`) placed next to your own compose file.
-`compose.yml` itself is only a template: you don't copy it, you copy the
-service block it contains into your own compose file (see below).
+Since 2.2.0.0 the image is published to Docker Hub as
+[`marnalas/jellyfin-subsync-sidecar`](https://hub.docker.com/r/marnalas/jellyfin-subsync-sidecar),
+so there's nothing to build locally - see [Breaking changes](#breaking-changes)
+if you're upgrading from 2.1.0.0 or earlier.
 
-That gives you a layout like this:
-
-```
-your-stack/                  # wherever your docker-compose.yml lives
-├── docker-compose.yml       # already defines `jellyfin`
-└── subsync-sidecar/
-    ├── app.py
-    ├── Dockerfile
-    └── requirements.txt
-```
+Use `subsync-sidecar/compose.yml` as a template: copy the service block it
+contains into your own compose file (see below).
 
 Here's an example of the `jellyfin` and sidecar service declarations (env
 vars like `${PUID}`/`${MEDIADIR}` are just placeholders, substitute your
@@ -85,12 +114,12 @@ services:
       - ${MEDIADIR}/library2:/media/library2
       - ${MEDIADIR}/library3:/media/library3
 
-  # Built from the files copied previously. The name you give this service
-  # is what you'll use as the host in the plugin's Sidecar URL (here,
+  # Pulled from Docker Hub - nothing to build locally. The name you give this
+  # service is what you'll use as the host in the plugin's Sidecar URL (here,
   # http://jellyfin-subsync:8000) - it just needs to be consistent between the two.
   jellyfin-subsync:
+    image: marnalas/jellyfin-subsync-sidecar:latest
     container_name: jellyfin-subsync
-    build: ./subsync-sidecar # match the folder name where you copied the sidecar files
     restart: unless-stopped
     user: "${PUID}:${PGID}"   # match jellyfin's user so both can read/write the same files
     # ports:

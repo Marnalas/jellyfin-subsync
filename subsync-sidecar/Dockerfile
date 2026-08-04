@@ -4,13 +4,11 @@
 # later, that's the point to revisit this Dockerfile (nvidia/cuda base,
 # torch, --gpus all in compose) - deliberately not carrying that weight
 # until it's actually used.
-FROM python:3.12-slim
+FROM dhi/python:3.14-alpine-sfw-dev
 
 ENV PYTHONUNBUFFERED=1
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        ffmpeg \
-    && rm -rf /var/lib/apt/lists/*
+RUN apk add --no-cache ffmpeg
 
 WORKDIR /app
 COPY requirements.txt .
