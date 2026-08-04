@@ -160,7 +160,7 @@ jobs:
   # own tests or build are failing puts a version out there with nothing
   # known-compatible to talk to, and users auto-update into it.
   build:
-    needs: [test, test-sidecar, check-version, build]
+    needs: [test, test-sidecar, check-version, sidecar]
     if: github.event_name != 'pull_request' && needs.check-version.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     steps:
