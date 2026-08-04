@@ -32,6 +32,7 @@ namespace Jellyfin.Subsync.Starter
             {
                 Name = "Subsync",
                 EmbeddedResourcePath = string.Format("{0}.Configuration.configPage.html", GetType().Namespace),
+                EnableInMainMenu = true
             };
         }
     }
