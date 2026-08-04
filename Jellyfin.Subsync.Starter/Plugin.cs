@@ -10,25 +10,21 @@ namespace Jellyfin.Subsync.Starter
     {
         public static Plugin? Instance { get; private set; }
 
-        public Plugin(IApplicationPaths applicationPaths, IXmlSerializer xmlSerializer)
-            : base(applicationPaths, xmlSerializer)
-        {
-            Instance = this;
-
-            var videoExtensionsChanged = Configuration.NormalizeVideoExtensions();
-            var subtitleExtensionsChanged = Configuration.NormalizeSubtitleExtensions();
-            if (videoExtensionsChanged || subtitleExtensionsChanged)
-            {
-                SaveConfiguration();
-            }
-        }
-
         public override string Name => "Subsync";
 
         public override Guid Id => Guid.Parse("6e9cb927-95fc-4ab9-8267-c896060ae50e");
 
         public override string Description =>
             "Automatically syncs subtitles against their video using a ffsubsync sidecar.";
+
+        public Plugin(IApplicationPaths applicationPaths, IXmlSerializer xmlSerializer)
+            : base(applicationPaths, xmlSerializer)
+        {
+            Instance = this;
+
+            if (Configuration.NormalizeSubtitleExtensions())
+                SaveConfiguration();
+        }
 
         public IEnumerable<PluginPageInfo> GetPages()
         {

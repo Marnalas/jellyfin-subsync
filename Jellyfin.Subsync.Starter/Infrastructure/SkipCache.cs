@@ -31,9 +31,7 @@ namespace Jellyfin.Subsync.Starter.Infrastructure
             lock (_lock)
             {
                 if (!File.Exists(_path))
-                {
                     return;
-                }
 
                 try
                 {

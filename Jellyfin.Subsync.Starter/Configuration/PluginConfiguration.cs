@@ -11,11 +11,14 @@ namespace Jellyfin.Subsync.Starter.Configuration
         public string SidecarUrl { get; set; } = "http://subsync-sidecar:8000";
 
         /// <summary>
-        /// Maps each watched library path, as seen INSIDE the Jellyfin
-        /// container, to its equivalent path as seen by the subsync-sidecar
-        /// container. Each pair is independent - there's no shared root
-        /// requirement, so libraries can be mounted under completely
-        /// different directory layouts on each side.
+        /// Maps each library path, as seen INSIDE the Jellyfin container, to
+        /// its equivalent path as seen by the subsync-sidecar container. Each
+        /// pair is independent - there's no shared root requirement, so
+        /// libraries can be mounted under completely different directory
+        /// layouts on each side. This is path translation only: what gets
+        /// swept comes from the Jellyfin library, not from these entries. A
+        /// subtitle whose path matches no entry is skipped with a warning,
+        /// because the sidecar would have no way to find it.
         /// </summary>
         /// <remarks>
         /// A List of entries is used instead of a Dictionary because
@@ -24,10 +27,7 @@ namespace Jellyfin.Subsync.Starter.Configuration
         /// </remarks>
         public List<PathMapEntry> WatchedPathsMaps { get; set; } = [];
 
-        /// <summary>Video file extensions to consider when matching a subtitle to its video.</summary>
-        public List<string> VideoExtensions { get; set; } = [];
-
-        /// <summary>Subtitle file extensions to scan for and sync.</summary>
+        /// <summary>Subtitle file extensions to sync. Narrows the set Jellyfin already recognises.</summary>
         public List<string> SubtitleExtensions { get; set; } = [];
 
         /// <summary>How often the sidecar job status is polled while waiting for a sync to finish.</summary>

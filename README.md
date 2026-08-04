@@ -14,9 +14,12 @@ their video, using [ffsubsync](https://github.com/smacke/ffsubsync). It's
 made of two pieces:
 
 - **The plugin** (`Jellyfin.Subsync.Starter/`) - runs inside Jellyfin. A scheduled task
-  sweeps your configured library paths for subtitle files (`.srt`, `.ass`,
-  `.ssa`, `.vtt`, `.sub` by default - configurable), matches each one to
-  its video, and skips anything already synced (tracked by content hash so
+  walks the video items in your Jellyfin libraries and syncs the external
+  subtitle files (`.srt`, `.ass`, `.ssa`, `.vtt`, `.sub` by default -
+  configurable) Jellyfin has already indexed against them. Which subtitle
+  belongs to which video is Jellyfin's own answer, not a filename guess, so
+  `.forced`, `.sdh` and `pt-BR` style tags work exactly as well as plain
+  `.en`. Anything already synced is skipped (tracked by content hash, so
   repeat sweeps are cheap). It also adds a "Run Now" trigger under
   Dashboard > Scheduled Tasks, and an admin config page under Dashboard >
   Plugins > Subsync.
@@ -42,11 +45,49 @@ No GPU is required - the default `webrtc` VAD `ffsubsync` uses is CPU-only.
 
 ## Breaking changes
 
-### 2.2.0.0 - the sidecar image comes from Docker Hub
+### 3.0.0.0 - subtitles come from the Jellyfin library, not a filesystem walk
+
+Up to 2.1.0.0 the plugin walked your watched paths itself and worked out
+which subtitle belonged to which video from the filenames, using a pattern
+that assumed the tag before the extension was a 2-3 character language code.
+That silently never synced anything tagged `.forced` or `.sdh`, anything with
+a hyphenated locale like `pt-BR` or `zh-CN`, and anything whose title
+happened to end in a short dotted segment (`Show.S01.E02.srt`,
+`Movie.4K.srt`) - which is most of what Bazarr and subliminal produce.
+
+From 3.0.0.0 the sweep asks Jellyfin instead. Jellyfin already records every
+external subtitle file against the video it belongs to, with its language and
+flags resolved, so all of the above now syncs. **You may see a much larger
+first run than usual** as the backlog those patterns had been skipping gets
+picked up.
+
+What this changes for you:
+
+- **Run a library scan first.** Only subtitles Jellyfin has indexed are
+  visible. One that Bazarr dropped in after the last scan won't be synced
+  until the next one (Dashboard > Scheduled Tasks > Scan Media Library).
+- **"Watched paths" is now path *translation* only**, and is renamed **Path
+  mappings** on the config page. It no longer decides what gets swept - your
+  libraries do. But every library path still needs an entry: a subtitle whose
+  path matches no entry is skipped with a warning, since the sidecar would
+  have no way to reach it. Existing configurations keep working unchanged.
+- **The "Video extensions" setting is gone.** The video now comes from the
+  library item itself, so there was nothing left for it to do. Any saved
+  value is ignored and dropped the next time you save the config page.
+- **Videos that aren't in a Jellyfin library are no longer touched**, even if
+  they sit under a mapped path.
+- **Only extensions Jellyfin recognises as subtitles can be picked up**
+  (`ass`, `mks`, `sami`, `smi`, `srt`, `ssa`, `sub`, `sup`, `vtt`),
+  intersected with your **Subtitle extensions** setting.
+- **ISO / BDMV / VIDEO_TS rips are skipped with a warning** - there's no
+  single video file for ffsubsync to align against. Previously these were
+  attempted and failed at the sidecar.
+
+### 3.0.0.0 - the sidecar image comes from Docker Hub
 
 Up to 2.1.0.0 the sidecar had no published image: you copied
 `subsync-sidecar/` next to your compose file and built it yourself.
-From 2.2.0.0 the image is built by CI and published to
+From 3.0.0.0 the image is built by CI and published to
 [`marnalas/jellyfin-subsync-sidecar`](https://hub.docker.com/r/marnalas/jellyfin-subsync-sidecar).
 
 **If you're upgrading, point the service at the published image and delete `subsync-sidecar/`:**
@@ -70,7 +111,7 @@ Available tags:
 | Tag | Points at |
 | --- | --- |
 | `latest` | the newest build of `main` |
-| `2.2.0.0`, `2.3.0.0`, ... | the sidecar as released alongside that plugin version - pin this if you'd rather upgrade on purpose |
+| `3.0.0.0`, ... | the sidecar as released alongside that plugin version - pin this if you'd rather upgrade on purpose |
 | `sha-<short-sha>` | one specific commit |
 
 Nothing changes on the plugin side: `Sidecar URL`, watched paths, volumes
@@ -86,7 +127,7 @@ The sidecar is run as its own container, alongside Jellyfin, in the **same
 `docker-compose.yml` that already defines your `jellyfin` service** - it
 is not a standalone stack with its own compose file.
 
-Since 2.2.0.0 the image is published to Docker Hub as
+Since 3.0.0.0 the image is published to Docker Hub as
 [`marnalas/jellyfin-subsync-sidecar`](https://hub.docker.com/r/marnalas/jellyfin-subsync-sidecar),
 so there's nothing to build locally - see [Breaking changes](#breaking-changes)
 if you're upgrading from 2.1.0.0 or earlier.
@@ -144,7 +185,7 @@ services:
       # identity maps instead of needing a per-library translation - see
       # the plugin config example below. That being said, you can use
       # different in-container paths on each side if you'd rather keep
-      # your own layout, just configure the plugin's Watched paths correctly.
+      # your own layout, just configure the plugin's Path mappings correctly.
       - ${MEDIADIR}/library1:/media/library1
       - ${MEDIADIR}/library2:/media/library2
       - ${MEDIADIR}/library3:/media/library3
@@ -180,22 +221,25 @@ Then in Jellyfin, go to Dashboard > Plugins > Subsync and set:
 
 - **Sidecar URL** - e.g. `http://jellyfin-subsync:8000` (the compose service
   name, so it resolves on the internal Docker network).
-- **Watched paths** - one library per line, as `jellyfin-path : sidecar-path`
+- **Path mappings** - one library per line, as `jellyfin-path : sidecar-path`
   (e.g. `/path/to/jellyfin/library : /path/in/sidecar/container`). The left
   side is the path as seen inside the Jellyfin container; the right side is
   the same library as seen inside the sidecar container. Each line is
   independent - libraries don't need to share a common root on either side.
-- Video extensions, subtitleExtensions, poll interval, and job timeout, if
-  you want anything other than the defaults.
+  This is translation only - it doesn't choose what gets swept - but every
+  library path needs a line here, or its subtitles are skipped with a warning.
+- Subtitle extensions, poll interval, and job timeout, if you want anything
+  other than the defaults.
 - **Max parallel jobs** - how many subtitles the sweep submits to the
   sidecar at once (default 1). Only raise this alongside the sidecar's own
   `MAX_PARALLEL_JOBS`; the two need to be sized together, see the config
   page's field description.
 
-**The plugin will not sync subtitles until `Sidecar URL` and `Watched paths`
-are both configured correctly** - if the URL doesn't resolve/isn't
-reachable, or a path pair doesn't point at the same files on both sides,
-the sweep task just completes having found nothing to do, silently. For
+**The plugin will not sync subtitles until `Sidecar URL` and `Path mappings`
+are both configured correctly, and your libraries have been scanned** - if
+the URL doesn't resolve/isn't reachable, or a path pair doesn't point at the
+same files on both sides, the sweep task just completes having found nothing
+to do, silently. For
 reference, this is the config that comes out of the fields above when
 matching the compose example in step 1, where every library is
 mounted at the same in-container path on both sides, so each map entry is
@@ -219,15 +263,6 @@ an identity map:
       <SidecarPath>/media/library3</SidecarPath>
     </PathMapEntry>
   </WatchedPathsMaps>
-  <VideoExtensions>
-    <string>mkv</string>
-    <string>mp4</string>
-    <string>m4v</string>
-    <string>avi</string>
-    <string>ts</string>
-    <string>mov</string>
-    <string>wmv</string>
-  </VideoExtensions>
   <SubtitleExtensions>
     <string>srt</string>
     <string>ass</string>
@@ -262,22 +297,38 @@ services running on it.
 
 1. Confirm the sidecar is reachable: `curl <SidecarUrl>/health` from inside
    the Jellyfin container.
-2. Dashboard > Scheduled Tasks > "Sync unsynced subtitles" > Run Now. Watch
-   the Jellyfin server log for `Subsync: syncing ...` lines.
-3. Run it again immediately after - it should finish fast and log nothing,
-   since the skip-cache already has everything from step 2.
+2. Dashboard > Scheduled Tasks > "Scan Media Library" > Run Now, so Jellyfin
+   has indexed the subtitle files. The sweep only sees what Jellyfin knows
+   about.
+3. Dashboard > Scheduled Tasks > "Sync unsynced subtitles" > Run Now. Watch
+   the Jellyfin server log for `Subsync sweep: inspecting N library video
+   item(s)` followed by `Subsync: syncing ...` lines.
+4. Run it again immediately after - it should finish fast and log nothing,
+   since the skip-cache already has everything from step 3.
 
 ## Known limitations
 
+- **Subtitles have to be indexed by Jellyfin before they can be synced.**
+  The sweep reads the library, not the filesystem, so anything added since
+  the last library scan is invisible until the next one. This is the
+  trade-off for letting Jellyfin decide which subtitle belongs to which
+  video instead of guessing from filenames.
+- **Subtitles that don't sit next to their video are skipped**, with a
+  warning naming the file. The sidecar's sync endpoint takes a single folder
+  plus two filenames, so a cross-directory pair can't be expressed. In
+  practice this only affects subtitles Jellyfin stored under its own
+  internal metadata folder.
+- **ISO, BDMV and VIDEO_TS items are skipped**, with a warning. There's no
+  single video file for ffsubsync to align against.
 - **The "Sync unsynced subtitles" task shows an indeterminate progress bar,
-  not a percentage.** This is intentional, not a bug: subtitle files are
-  discovered lazily, streamed one path at a time instead of being collected
-  upfront, so a huge library never has to sit fully buffered in memory
-  before syncing starts. The trade-off is that the total subtitle count
-  isn't known until the sweep finishes, so there's no meaningful number to
-  report progress against - an indeterminate bar is preferable to one stuck
-  at 0% for the entire run. Watch the Jellyfin server log for `Subsync:
-  syncing ...` lines if you want visibility into what's actively happening.
+  not a percentage.** This is intentional, not a bug: library items are
+  streamed one at a time instead of being collected upfront, so a huge
+  library never has to sit fully buffered in memory before syncing starts.
+  The item count is known up front, but how many subtitles they'll turn out
+  to have isn't - and it's the subtitles, not the items, that take the time.
+  An indeterminate bar is preferable to one that jumps unpredictably. Watch
+  the Jellyfin server log for `Subsync: syncing ...` lines if you want
+  visibility into what's actively happening.
 
 ## Thanks
 

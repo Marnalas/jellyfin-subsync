@@ -11,40 +11,30 @@ namespace Jellyfin.Subsync.Starter.Application
         private readonly ILogger _logger = logger;
 
         /// <summary>
-        /// Processes a single subtitle path: matches it to a video, skips it
-        /// if already synced, otherwise calls the sidecar and updates the
-        /// skip-cache on success. Safe to call concurrently - the sweep task
-        /// invokes this from multiple parallel workers at once.
+        /// Syncs one subtitle from a group: skips it if already synced, picks
+        /// what to align it against, then calls the sidecar and updates the
+        /// skip-cache on success. Both the subtitle and its reference are
+        /// guaranteed to sit in the same directory, so they map to the single
+        /// folder the sidecar's /sync accepts. Safe to call concurrently - the
+        /// sweep task invokes this from multiple parallel workers at once.
         /// </summary>
-        internal async Task ProcessAsync(string subtitlePath, CancellationToken cancellationToken)
+        internal async Task ProcessAsync(SubtitleSyncGroup group, string subtitlePath, CancellationToken cancellationToken)
         {
             var config = Plugin.Instance!.Configuration;
 
-            if (!SubtitleMatcher.IsSubtitleFile(subtitlePath, config)
-                || !File.Exists(subtitlePath)
-                || _skipCache.IsAlreadySynced(subtitlePath))
-            {
+            // The library row can be stale: the file may have been deleted or
+            // replaced since the last scan. IsAlreadySynced hashes the file and
+            // throws if it's gone, so this guard is load-bearing.
+            if (!File.Exists(subtitlePath) || _skipCache.IsAlreadySynced(subtitlePath))
                 return;
-            }
 
-            var relatedFiles = SubtitleMatcher.FindRelatedFiles(subtitlePath, config);
-            if (relatedFiles is null)
-            {
-                _logger.LogDebug("Subsync: no related files for {Subtitle}", subtitlePath);
-                return;
-            }
-
-            var referenceFile = relatedFiles
-                .FirstOrDefault(relatedFile => relatedFile.Type == FileType.Subtitle && _skipCache.IsAlreadySynced(relatedFile.FilePath))
-                ?? relatedFiles.FirstOrDefault(rf => rf.Type == FileType.Movie);
-            if (referenceFile is null)
-            {
-                _logger.LogDebug("Subsync: no already synced subtitle or movie for {Subtitle}", subtitlePath);
-                return;
-            }
+            var referencePath = SubtitleWorkBuilder.ChooseReference(
+                subtitlePath,
+                group,
+                candidate => File.Exists(candidate) && _skipCache.IsAlreadySynced(candidate));
 
             var subtitleMapping = SubtitleMatcher.ToSidecarAbsolute(subtitlePath, config);
-            var referenceFileMapping = SubtitleMatcher.ToSidecarAbsolute(referenceFile.FilePath, config);
+            var referenceFileMapping = SubtitleMatcher.ToSidecarAbsolute(referencePath, config);
             if (subtitleMapping is null || referenceFileMapping is null)
             {
                 _logger.LogWarning("Subsync: {Subtitle} is not under any configured WatchedPathsMaps entry, skipping", subtitlePath);
@@ -60,9 +50,7 @@ namespace Jellyfin.Subsync.Starter.Application
                 .ConfigureAwait(false);
 
             if (ok)
-            {
                 _skipCache.MarkSynced(subtitlePath);
-            }
         }
     }
 }

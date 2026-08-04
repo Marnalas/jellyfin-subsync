@@ -4,7 +4,11 @@
             <form id="SubsyncConfigForm" style="max-width:60em;margin:auto;">
                 <div class="verticalSection">
                     <h2>Subsync</h2>
-                    <p>Configure the connection to the ffsubsync sidecar and which library paths to scan.</p>
+                    <p>
+                        Configure the connection to the ffsubsync sidecar and how your library paths map onto
+                        the sidecar's. What gets synced comes from your Jellyfin libraries - the sweep only sees
+                        external subtitles Jellyfin has already indexed, so run a library scan after adding new ones.
+                    </p>
                 </div>
 
                 <div class="inputContainer">
@@ -16,7 +20,7 @@
                 </div>
 
                 <div class="inputContainer">
-                    <label class="inputLabel inputLabelUnfocused" for="WatchedPathsMaps">Watched paths</label>
+                    <label class="inputLabel inputLabelUnfocused" for="WatchedPathsMaps">Path mappings</label>
                     <textarea is="emby-textarea" id="WatchedPathsMaps" rows="8" style="width:100%;"></textarea>
                     <div class="fieldDescription">
                         One library per line, in the form <code>jellyfin-path : sidecar-path</code>,
@@ -25,13 +29,11 @@
                         the right side is the equivalent path as seen by the subsync-sidecar container.
                         Each line is independent - there's no shared root requirement between libraries,
                         so they can be mounted under completely different layouts on each side.
-                    </div>
-                </div>
-
-                <div class="inputContainer">
-                    <input is="emby-input" type="text" id="VideoExtensions" label="Video extensions" />
-                    <div class="fieldDescription">
-                        Comma-separated, no dots, e.g. mkv,mp4,m4v,avi,ts,mov,wmv
+                        <br /><br />
+                        This is path translation only - it does not choose what gets swept, your Jellyfin
+                        libraries do. But every library path still needs a matching line here: a subtitle
+                        whose path matches no entry is skipped with a warning, because the sidecar would
+                        have no way to reach it.
                     </div>
                 </div>
 
@@ -41,6 +43,9 @@
                         Comma-separated, no dots, e.g. srt,ass,ssa,vtt,sub. ffsubsync reads and
                         writes each of these formats natively, so non-SRT subtitles are synced
                         (and kept) in their original format rather than being converted to SRT.
+                        This narrows what Jellyfin already recognises as a subtitle
+                        (<code>ass, mks, sami, smi, srt, ssa, sub, sup, vtt</code>) - adding anything
+                        outside that set here has no effect.
                     </div>
                 </div>
 
@@ -127,7 +132,6 @@
                     ApiClient.getPluginConfiguration(pluginId).then(function (config) {
                         document.querySelector('#SidecarUrl').value = config.SidecarUrl || '';
                         document.querySelector('#WatchedPathsMaps').value = mapToLines(config.WatchedPathsMaps);
-                        document.querySelector('#VideoExtensions').value = arrayToCsv(config.VideoExtensions);
                         document.querySelector('#SubtitleExtensions').value = arrayToCsv(config.SubtitleExtensions);
                         document.querySelector('#PollIntervalMilliseconds').value = config.PollIntervalMilliseconds || 3000;
                         document.querySelector('#JobTimeoutSeconds').value = config.JobTimeoutSeconds || 1800;
@@ -143,7 +147,6 @@
                     ApiClient.getPluginConfiguration(pluginId).then(function (config) {
                         config.SidecarUrl = document.querySelector('#SidecarUrl').value.trim();
                         config.WatchedPathsMaps = linesToMap(document.querySelector('#WatchedPathsMaps').value);
-                        config.VideoExtensions = csvToArray(document.querySelector('#VideoExtensions').value);
                         config.SubtitleExtensions = csvToArray(document.querySelector('#SubtitleExtensions').value);
                         config.PollIntervalMilliseconds = parseInt(document.querySelector('#PollIntervalMilliseconds').value, 10) || 3000;
                         config.JobTimeoutSeconds = parseInt(document.querySelector('#JobTimeoutSeconds').value, 10) || 1800;
