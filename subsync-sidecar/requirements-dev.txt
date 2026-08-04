@@ -1,0 +1,15 @@
+# Test-only dependencies for the suite under tests/.
+#
+# Deliberately not "-r requirements.txt": that would pull ffsubsync and its
+# numpy/scipy tail into every CI run, minutes of install time for a binary the
+# tests never call - they put a shell script named `ffsubsync` on PATH instead,
+# which is what makes the failure/timeout/missing-binary cases reachable at all.
+#
+# fastapi is pinned to the same floor as requirements.txt so the suite exercises
+# the version the image actually ships.
+fastapi>=0.110
+# TestClient's HTTP backend. Current starlette wants httpx2 and emits a
+# deprecation warning if it finds only httpx, so this tracks the one it asks
+# for rather than the one it still tolerates.
+httpx2>=2.0
+pytest>=8.0

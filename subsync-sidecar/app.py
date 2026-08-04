@@ -22,6 +22,7 @@ import queue
 import uuid
 import time
 import logging
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
 
@@ -50,19 +51,28 @@ def _env_int(name: str, default: int, minimum: int = 1) -> int:
     return value
 
 
+def _env_args(name: str) -> list[str]:
+    """Read an env var as a list of command-line arguments, falling back to none
+    when it's unset or has unbalanced quotes. Same principle as `_env_int`: a
+    typo in a compose file should never stop the sidecar from starting.
+
+    shlex.split rather than str.split: with a bare split, an argument containing
+    a space (FFSUBSYNC_EXTRA_ARGS='--vad "webrtc x"') arrived as three tokens,
+    two of them carrying literal quote characters, and the job failed on an
+    argument the user could see was correct. There's no shell=True anywhere
+    here, so this is about parsing, not injection.
+    """
+    try:
+        return shlex.split(os.environ.get(name, ""))
+    except ValueError as e:
+        log.warning("Ignoring unparseable %s (%s), using none", name, e)
+        return []
+
+
 # no --vad flag, so ffsubsync uses its default (webrtc). Switching to
 # GPU-accelerated silero VAD is a later, separate step once this known-working
 # baseline is confirmed running.
-# shlex.split rather than str.split: with a bare split, an argument containing
-# a space (FFSUBSYNC_EXTRA_ARGS='--vad "webrtc x"') arrived as three tokens,
-# two of them carrying literal quote characters, and the job failed on an
-# argument the user could see was correct. There's no shell=True anywhere here,
-# so this is about parsing, not injection.
-try:
-    FFSUBSYNC_EXTRA_ARGS = shlex.split(os.environ.get("FFSUBSYNC_EXTRA_ARGS", ""))
-except ValueError as e:
-    log.warning("Ignoring unparseable FFSUBSYNC_EXTRA_ARGS (%s), using none", e)
-    FFSUBSYNC_EXTRA_ARGS = []
+FFSUBSYNC_EXTRA_ARGS = _env_args("FFSUBSYNC_EXTRA_ARGS")
 
 # ffsubsync only decodes the audio track (via ffmpeg), not the full video, so
 # it's light enough per-job to run several at once on a multi-core host.
@@ -110,9 +120,27 @@ KEEP_ORIGINAL_SUBTITLE_BACKUP = os.environ.get("KEEP_ORIGINAL_SUBTITLE_BACKUP", 
 
 TERMINAL_STATUSES = frozenset(("done", "failed", "cancelled"))
 
-app = FastAPI(title="subsync-sidecar")
 
-job_queue: "queue.Queue[str]" = queue.Queue()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Start the worker pool when the app starts, not when the module is
+    imported. Import-time threads are spawned once per interpreter rather than
+    once per app, so `uvicorn --reload` and `--workers` both get them at the
+    wrong moment; hanging them off the lifespan ties the pool to the thing it
+    actually serves.
+    """
+    start_workers()
+    try:
+        yield
+    finally:
+        stop_workers()
+
+
+app = FastAPI(title="subsync-sidecar", lifespan=lifespan)
+
+# Optional[str] rather than str: `stop_workers` puts one None per worker to end
+# the pool, and there is no other way to wake a thread parked on Queue.get().
+job_queue: "queue.Queue[Optional[str]]" = queue.Queue()
 jobs: dict[str, dict] = {}
 jobs_lock = threading.Lock()
 
@@ -308,26 +336,45 @@ def _prune_jobs_locked():
         log.debug("Pruned %d finished job(s), %d retained", dropped, len(jobs))
 
 
+def _claim_job(job_id: str) -> Optional[tuple[dict, int]]:
+    """Take ownership of a job popped off the queue.
+
+    Returns its (request, timeout) when the job is the worker's to run, or None
+    when there is nothing to do - the job is gone, or it was cancelled between
+    being queued and being picked up, in which case it is moved to `cancelled`
+    here.
+
+    The claim and the cancel check share one acquisition of `jobs_lock`, which
+    is the whole point of doing it in one function: a cancel arriving after this
+    returns sees "running" and takes the discard-the-result path in
+    `_run_ffsubsync`, rather than being overwritten by a claim that read
+    "queued" a moment earlier.
+    """
+    with jobs_lock:
+        job = jobs.get(job_id)
+        if job is None:
+            return None
+        if job.get("cancel_requested") or job["status"] != "queued":
+            job["status"] = "cancelled"
+            job["finished_at"] = time.time()
+            log.info("Job %s: cancelled before it started", job_id)
+            return None
+        job["status"] = "running"
+        job["started_at"] = time.time()
+        return job["request"], job["timeout_seconds"]
+
+
 def _worker():
     while True:
         job_id = job_queue.get()
+        if job_id is None:  # shutdown sentinel from stop_workers()
+            job_queue.task_done()
+            return
         try:
-            with jobs_lock:
-                job = jobs.get(job_id)
-                if job is None:
-                    continue
-                if job.get("cancel_requested") or job["status"] != "queued":
-                    job["status"] = "cancelled"
-                    job["finished_at"] = time.time()
-                    log.info("Job %s: cancelled before it started", job_id)
-                    continue
-                # Claimed under the same lock as the cancel check, so a cancel
-                # arriving right now sees "running" and takes the
-                # discard-the-result path rather than being overwritten here.
-                job["status"] = "running"
-                job["started_at"] = time.time()
-                req = job["request"]
-                timeout_seconds = job["timeout_seconds"]
+            claimed = _claim_job(job_id)
+            if claimed is None:
+                continue
+            req, timeout_seconds = claimed
 
             try:
                 _run_ffsubsync(job_id, SyncRequest(**req), timeout_seconds)
@@ -339,9 +386,35 @@ def _worker():
             job_queue.task_done()
 
 
-log.info("Starting %d sync worker thread(s) (MAX_PARALLEL_JOBS)", MAX_PARALLEL_JOBS)
-for _ in range(MAX_PARALLEL_JOBS):
-    threading.Thread(target=_worker, daemon=True).start()
+_worker_threads: list[threading.Thread] = []
+
+
+def start_workers():
+    """Spawn the worker pool. Called from the app lifespan, so importing this
+    module (a test, `python -c 'import app'`) doesn't start threads."""
+    log.info("Starting %d sync worker thread(s) (MAX_PARALLEL_JOBS)", MAX_PARALLEL_JOBS)
+    for _ in range(MAX_PARALLEL_JOBS):
+        thread = threading.Thread(target=_worker, daemon=True)
+        thread.start()
+        _worker_threads.append(thread)
+
+
+def stop_workers(timeout: float = 5.0):
+    """Ask every worker to exit once it's free, and wait a bounded moment.
+
+    A worker part-way through an ffsubsync run won't see its sentinel until that
+    run returns, which can be the whole job timeout away - hence the bound
+    rather than an open-ended join. The threads are daemons, so anything still
+    busy at the end of it doesn't hold the process open; the wait exists to give
+    an idle pool the chance to leave cleanly rather than to guarantee it.
+    """
+    threads = list(_worker_threads)
+    _worker_threads.clear()
+    for _ in threads:
+        job_queue.put(None)
+    deadline = time.monotonic() + timeout
+    for thread in threads:
+        thread.join(timeout=max(0.0, deadline - time.monotonic()))
 
 
 @app.get("/health")

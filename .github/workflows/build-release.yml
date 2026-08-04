@@ -34,7 +34,7 @@ permissions:
   id-token: write
 
 jobs:
-  # ── Unit tests ──────────────────────────────────────────────────────
+  # ── Plugin unit tests ───────────────────────────────────────────────
   # Deliberately unguarded, so tests also run on pushes that don't bump
   # <Version> (i.e. that won't release), not just on release-worthy ones.
   test:
@@ -49,6 +49,33 @@ jobs:
 
       - name: Run tests
         run: dotnet test Jellyfin.Subsync.Starter.Tests/Jellyfin.Subsync.Starter.Tests.csproj --configuration Release
+
+  # ── Sidecar unit tests ──────────────────────────────────────────────
+  # The other half of the sidecar protocol. Unguarded for the same reason as
+  # `test` above, and on the same Python as the image's base so the suite runs
+  # against the interpreter that will actually serve it.
+  test-sidecar:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: subsync-sidecar
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+          cache: pip
+          cache-dependency-path: subsync-sidecar/requirements-dev.txt
+
+      # requirements-dev.txt deliberately omits ffsubsync - see the comments
+      # there. The suite puts a stand-in on PATH instead.
+      - name: Install test dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Run tests
+        run: pytest
 
   # ── Check if release already exists ─────────────────────────────────
   check-version:
@@ -72,8 +99,12 @@ jobs:
           fi
 
   # ── Build plugin + create release ──────────────────────────────────
+  # Gated on both suites, not just the plugin's. The two halves ship as one
+  # protocol - a release that tags and publishes a plugin while the sidecar's
+  # own tests are failing puts a version out there with nothing known-compatible
+  # to talk to, and users auto-update into it.
   build:
-    needs: [test, check-version]
+    needs: [test, test-sidecar, check-version]
     if: github.event_name != 'pull_request' && needs.check-version.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     steps:
@@ -211,14 +242,17 @@ jobs:
 
   # ── Build + push the sidecar image ──────────────────────────────────
   # Runs on every push (not just release-worthy ones) so a sidecar-only
-  # change still ships a new `latest`, and is independent of the plugin
-  # release job - a broken image never blocks the plugin release and vice
-  # versa. The Docker Hub login happens *before* the build, not just before
+  # change still ships a new `latest`, and runs alongside the plugin release
+  # job rather than after it - a build failure on either side doesn't hold up
+  # the other's publish. The two suites are the exception: both jobs wait on
+  # both of them, because plugin and sidecar ship as one protocol and neither
+  # should be published while the other's tests are red.
+  # The Docker Hub login happens *before* the build, not just before
   # the push: the Dockerfile's base image is a Docker Hardened Image, which
   # is only pullable by an entitled account, so an anonymous build would
   # already fail on the FROM.
   sidecar:
-    needs: [test, check-version]
+    needs: [test, test-sidecar, check-version]
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     env:

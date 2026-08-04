@@ -13,3 +13,11 @@ venv/
 # image only needs requirements.txt and app.py.
 compose.yml
 *.md
+
+# The test suite and its dependencies ship nowhere. The Dockerfile only COPYs
+# requirements.txt and app.py, so nothing would leak either way - excluding
+# them keeps the build context small and stops an edit to a test from
+# invalidating the image cache.
+tests/
+requirements-dev.txt
+pytest.ini
