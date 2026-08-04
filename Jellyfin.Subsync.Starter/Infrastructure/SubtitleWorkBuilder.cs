@@ -40,6 +40,7 @@ namespace Jellyfin.Subsync.Starter.Infrastructure
             List<string> beside = [];
             List<string> elsewhere = [];
             var seen = new HashSet<string>(StringComparer.Ordinal);
+            var forced = new HashSet<string>(StringComparer.Ordinal);
 
             // Ordering is by stream index then path so a run is reproducible:
             // whichever subtitle comes first syncs against the video, and the
@@ -81,17 +82,19 @@ namespace Jellyfin.Subsync.Starter.Infrastructure
                 }
 
                 beside.Add(path);
+                if (stream.IsForced)
+                    forced.Add(path);
             }
 
             return beside.Count == 0
                 ? new ItemSubtitleWork(null, ItemSkipReason.NoUsableSubtitles, elsewhere)
-                : new ItemSubtitleWork(new SubtitleSyncGroup(itemPath, beside), ItemSkipReason.None, elsewhere);
+                : new ItemSubtitleWork(new SubtitleSyncGroup(itemPath, beside, forced), ItemSkipReason.None, elsewhere);
         }
 
         /// <summary>
-        /// Picks what a subtitle should be aligned against: an already-synced
-        /// sibling if there is one - aligning subtitle-to-subtitle needs no
-        /// audio extraction and is much faster - otherwise the video itself.
+        /// Picks what a subtitle should be aligned against: an non-forced
+        /// already-synced sibling if there is one - aligning subtitle-to-subtitle
+        /// needs no audio extraction and is much faster - otherwise the video itself.
         /// The "is it already synced" test is injected so the skip-cache and its
         /// file IO stay out of here.
         /// </summary>
@@ -103,7 +106,8 @@ namespace Jellyfin.Subsync.Starter.Infrastructure
             for (var i = 0; i < group.SubtitlePaths.Count; ++i)
             {
                 var candidate = group.SubtitlePaths[i];
-                if (string.Equals(candidate, subtitlePath, StringComparison.Ordinal))
+                if (string.Equals(candidate, subtitlePath, StringComparison.Ordinal)
+                    || group.ForcedSubtitlePaths?.Contains(candidate) == true)
                     continue;
                 if (isAlreadySynced(candidate))
                     return candidate;

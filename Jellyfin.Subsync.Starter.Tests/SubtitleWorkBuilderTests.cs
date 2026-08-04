@@ -90,6 +90,9 @@ namespace Jellyfin.Subsync.Starter.Tests
             Assert.Equal(
                 ["/m/Movie.en.srt", "/m/Movie.forced.srt", "/m/Movie.en.sdh.srt", "/m/Movie.pt-BR.srt"],
                 work.Group.SubtitlePaths);
+            Assert.Equal(
+                ["/m/Movie.forced.srt"],
+                work.Group.ForcedSubtitlePaths);
         }
 
         // --- B. Stream filtering ------------------------------------------------
@@ -345,7 +348,7 @@ namespace Jellyfin.Subsync.Starter.Tests
     {
         private static readonly SubtitleSyncGroup Group = new(
             "/m/Movie.mkv",
-            ["/m/Movie.en.srt", "/m/Movie.fr.srt", "/m/Movie.de.srt"]);
+            ["/m/Movie.en.srt", "/m/Movie.en.srt", "/m/Movie.fr.srt", "/m/Movie.de.srt"]);
 
         [Fact]
         public void NoSiblingSynced_UsesTheVideo()
@@ -378,6 +381,35 @@ namespace Jellyfin.Subsync.Starter.Tests
 
             Assert.NotEqual("/m/Movie.en.srt", reference);
             Assert.Equal("/m/Movie.fr.srt", reference);
+        }
+
+        [Fact]
+        public void ForcedSubtitleIsNeverReference()
+        {
+            var reference = SubtitleWorkBuilder.ChooseReference(
+                "/m/Movie.de.srt",
+                new(
+                    "/m/Movie.mkv",
+                    ["/m/Movie.en.srt", "/m/Movie.en.srt", "/m/Movie.fr.srt", "/m/Movie.de.srt"],
+                    new HashSet<string>() {"/m/Movie.en.srt"}),
+                _ => true);
+
+            Assert.NotEqual("/m/Movie.en.srt", reference);
+            Assert.Equal("/m/Movie.fr.srt", reference);
+        }
+
+        [Fact]
+        public void OnlyForcedIsSynced_UsesTheVideo()
+        {
+            var reference = SubtitleWorkBuilder.ChooseReference(
+                "/m/Movie.de.srt",
+                new(
+                    "/m/Movie.mkv",
+                    ["/m/Movie.en.srt"],
+                    new HashSet<string>() {"/m/Movie.en.srt"}),
+                _ => true);
+
+            Assert.Equal("/m/Movie.mkv", reference);
         }
 
         [Fact]

@@ -8,7 +8,10 @@ namespace Jellyfin.Subsync.Starter.Domain
     /// single folder plus two filenames, so a cross-directory pair can't be
     /// expressed.
     /// </summary>
-    internal sealed record SubtitleSyncGroup(string VideoPath, IReadOnlyList<string> SubtitlePaths);
+    internal sealed record SubtitleSyncGroup(
+        string VideoPath,
+        IReadOnlyList<string> SubtitlePaths,
+        IReadOnlySet<string>? ForcedSubtitlePaths = null);
 
     /// <summary>
     /// Why an item produced no group. Only used for logging - the sweep skips
