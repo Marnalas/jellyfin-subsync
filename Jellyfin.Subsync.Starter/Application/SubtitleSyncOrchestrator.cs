@@ -5,11 +5,16 @@ using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Subsync.Starter.Application
 {
-    internal class SubtitleSyncOrchestrator(ISubsyncClient client, ISkipCache skipCache, ILogger logger)
+    internal class SubtitleSyncOrchestrator(
+        ISubsyncClient client,
+        ISkipCache skipCache,
+        ILogger logger,
+        IFolderChangeSuppressor suppressor)
     {
         private readonly ISubsyncClient _client = client;
         private readonly ISkipCache _skipCache = skipCache;
         private readonly ILogger _logger = logger;
+        private readonly IFolderChangeSuppressor _suppressor = suppressor;
 
         /// <summary>
         /// Syncs one subtitle from a group: skips it if already synced, picks
@@ -53,17 +58,24 @@ namespace Jellyfin.Subsync.Starter.Application
 
             _logger.LogInformation("Subsync: syncing {Subtitle} against {Reference}", subtitleFilename, referenceFilename);
 
-            var outcome = await _client
-                .SyncAndWaitAsync(config, folder, referenceFilename, subtitleFilename, cancellationToken)
-                .ConfigureAwait(false);
+            // Jellyfin's watcher must not see the sidecar's write to this
+            // folder - otherwise it queues a library refresh whose
+            // subtitle-fetch step re-downloads the file we just synced.
+            var subtitleDirectory = Path.GetDirectoryName(subtitlePath)!;
+            using (_suppressor.Suppress(subtitleDirectory))
+            {
+                var outcome = await _client
+                    .SyncAndWaitAsync(config, folder, referenceFilename, subtitleFilename, cancellationToken)
+                    .ConfigureAwait(false);
 
-            // Only a confirmed sync is recorded. A job we timed out on or
-            // cancelled may still be finishing on the sidecar, and marking it
-            // here would pin a hash for content that hasn't been written yet.
-            if (outcome == SyncOutcome.Synced)
-                _skipCache.MarkSynced(subtitlePath);
+                // Only a confirmed sync is recorded. A job we timed out on or
+                // cancelled may still be finishing on the sidecar, and marking it
+                // here would pin a hash for content that hasn't been written yet.
+                if (outcome == SyncOutcome.Synced)
+                    _skipCache.MarkSynced(subtitlePath);
 
-            return outcome;
+                return outcome;
+            }
         }
     }
 }

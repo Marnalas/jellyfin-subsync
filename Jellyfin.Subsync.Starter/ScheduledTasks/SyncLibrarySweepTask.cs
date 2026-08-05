@@ -23,7 +23,8 @@ namespace Jellyfin.Subsync.Starter.ScheduledTasks
         ISkipCache skipCache,
         IPluginConfigurationProvider configurationProvider,
         ILibraryManager libraryManager,
-        IMediaSourceManager mediaSourceManager) : IScheduledTask
+        IMediaSourceManager mediaSourceManager,
+        IFolderChangeSuppressor suppressor) : IScheduledTask
     {
         /// <summary>
         /// A "Run Now" fired seconds after `docker compose up` shouldn't abort
@@ -37,7 +38,7 @@ namespace Jellyfin.Subsync.Starter.ScheduledTasks
         private readonly ISubsyncClient _client = client;
         private readonly ISkipCache _skipCache = skipCache;
         private readonly IPluginConfigurationProvider _configurationProvider = configurationProvider;
-        private readonly SubtitleSyncOrchestrator _orchestrator = new(client, skipCache, logger);
+        private readonly SubtitleSyncOrchestrator _orchestrator = new(client, skipCache, logger, suppressor);
         private readonly LibrarySubtitleSource _source = new(libraryManager, mediaSourceManager, logger);
 
         public string Name => "Sync unsynced subtitles";

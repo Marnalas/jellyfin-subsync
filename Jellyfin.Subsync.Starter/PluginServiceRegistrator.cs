@@ -2,6 +2,7 @@ using Jellyfin.Subsync.Starter.Configuration;
 using Jellyfin.Subsync.Starter.Infrastructure;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller;
+using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Plugins;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -36,6 +37,11 @@ namespace Jellyfin.Subsync.Starter
                 var logger = provider.GetRequiredService<ILogger<SubsyncClient>>();
                 return new SubsyncClient(httpClientFactory, logger);
             });
+
+            // Singleton (not per-sweep) so the ref-count in FolderChangeSuppressor
+            // stays correct even if two sweeps somehow overlap.
+            serviceCollection.AddSingleton<IFolderChangeSuppressor>(provider =>
+                new FolderChangeSuppressor(provider.GetRequiredService<ILibraryMonitor>()));
         }
     }
 }
