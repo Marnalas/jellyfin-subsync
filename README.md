@@ -265,7 +265,7 @@ updated.
 ## Roadmap
 
 - Support for Jellyfin 12
-- Specific administor page to force a subtitle file to be (re)synced in the next plugin run
+- Specific administrator page to force a subtitle file to be (re)synced in the next plugin run
 - [open to suggestions]
 
 ## Breaking changes
