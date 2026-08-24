@@ -2,7 +2,7 @@ name: Build and Release
 
 on:
   push:
-    branches: [main]
+    branches: [main, '10.11']
     paths:
       - '**/*.cs'
       - '**/*.csproj'
@@ -14,7 +14,7 @@ on:
   # the event being a push, so a PR never tags, releases, publishes Pages or
   # pushes an image.
   pull_request:
-    branches: [main]
+    branches: [main, '10.11']
     paths:
       - '**/*.cs'
       - '**/*.csproj'
@@ -34,10 +34,39 @@ permissions:
   id-token: write
 
 jobs:
+  # ── Resolve which Jellyfin/.NET channel is building ──────────────────
+  # `10.11` is the frozen hotfix line (dotnet 9 / net9.0 / Jellyfin 10.11 ABI);
+  # everything else (currently just `main`) is the ongoing Jellyfin 12 line
+  # (dotnet 10 / net10.0). `github.ref_name` is the branch on push/dispatch,
+  # but on pull_request it's the synthetic merge ref, so the PR's target
+  # branch (`base_ref`) is used instead.
+  channel:
+    runs-on: ubuntu-latest
+    outputs:
+      dotnet_version: ${{ steps.detect.outputs.dotnet_version }}
+      tfm: ${{ steps.detect.outputs.tfm }}
+      target_abi: ${{ steps.detect.outputs.target_abi }}
+    steps:
+      - name: Detect channel
+        id: detect
+        env:
+          BRANCH: ${{ github.event_name == 'pull_request' && github.base_ref || github.ref_name }}
+        run: |
+          if [ "$BRANCH" = "10.11" ]; then
+            echo "dotnet_version=9.0.x" >> $GITHUB_OUTPUT
+            echo "tfm=net9.0" >> $GITHUB_OUTPUT
+            echo "target_abi=10.11.0.0" >> $GITHUB_OUTPUT
+          else
+            echo "dotnet_version=10.0.x" >> $GITHUB_OUTPUT
+            echo "tfm=net10.0" >> $GITHUB_OUTPUT
+            echo "target_abi=12.0.0.0" >> $GITHUB_OUTPUT
+          fi
+
   # ── Plugin unit tests ───────────────────────────────────────────────
   # Deliberately unguarded, so tests also run on pushes that don't bump
   # <Version> (i.e. that won't release), not just on release-worthy ones.
   test:
+    needs: [channel]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -45,7 +74,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: '9.0.x'
+          dotnet-version: ${{ needs.channel.outputs.dotnet_version }}
 
       - name: Run tests
         run: dotnet test Jellyfin.Subsync.Starter.Tests/Jellyfin.Subsync.Starter.Tests.csproj --configuration Release
@@ -207,7 +236,7 @@ jobs:
   # own tests or build are failing puts a version out there with nothing
   # known-compatible to talk to, and users auto-update into it.
   build:
-    needs: [test, test-sidecar, check-version, sidecar]
+    needs: [channel, test, test-sidecar, check-version, sidecar]
     if: github.event_name != 'pull_request' && needs.check-version.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     steps:
@@ -218,7 +247,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: '9.0.x'
+          dotnet-version: ${{ needs.channel.outputs.dotnet_version }}
 
       - name: Generate changelog
         id: changelog
@@ -241,6 +270,8 @@ jobs:
       - name: Create plugin package
         env:
           CHANGELOG: ${{ steps.changelog.outputs.changelog }}
+          TFM: ${{ needs.channel.outputs.tfm }}
+          TARGET_ABI: ${{ needs.channel.outputs.target_abi }}
         run: |
           VERSION="${{ needs.check-version.outputs.version }}"
           if [[ ! "$VERSION" =~ ^[0-9]+(\.[0-9]+){3}$ ]]; then
@@ -249,12 +280,13 @@ jobs:
           fi
           TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           mkdir -p release
-          cp Jellyfin.Subsync.Starter/bin/Release/net9.0/Jellyfin.Subsync.Starter.dll release/
-          cp Jellyfin.Subsync.Starter/bin/Release/net9.0/Jellyfin.Subsync.Starter.pdb release/
+          cp Jellyfin.Subsync.Starter/bin/Release/${TFM}/Jellyfin.Subsync.Starter.dll release/
+          cp Jellyfin.Subsync.Starter/bin/Release/${TFM}/Jellyfin.Subsync.Starter.pdb release/
           jq -n \
             --arg version "$VERSION" \
             --arg timestamp "$TIMESTAMP" \
             --arg changelog "$CHANGELOG" \
+            --arg targetAbi "$TARGET_ABI" \
           <<'EOF' > release/meta.json
           {
             category: "Subtitles",
@@ -264,7 +296,7 @@ jobs:
             name: "SubsyncStarter",
             overview: "Syncs the external subtitles in your Jellyfin libraries, using the subsync-sidecar service (ffsubsync) to fix any timing drift. Defaults as a scheduled sweep with a skip-cache so repeat runs are cheap, and doubles as a manual 'Run Now' trigger from Dashboard > Scheduled Tasks.",
             owner: "Marnalas",
-            targetAbi: "10.11.0.0",
+            targetAbi: $targetAbi,
             timestamp: $timestamp,
             version: $version,
             status: "Active",
@@ -284,6 +316,7 @@ jobs:
       - name: Update manifest.json
         env:
           CHANGELOG: ${{ steps.changelog.outputs.changelog }}
+          TARGET_ABI: ${{ needs.channel.outputs.target_abi }}
         run: |
           VERSION="${{ needs.check-version.outputs.version }}"
           CHECKSUM="${{ steps.checksum.outputs.checksum }}"
@@ -294,7 +327,8 @@ jobs:
             --arg cs "$CHECKSUM" \
             --arg ts "$TIMESTAMP" \
             --arg changelog "$CHANGELOG" \
-            '{version: $ver, changelog: $changelog, targetAbi: "10.11.0.0", sourceUrl: "https://github.com/Marnalas/jellyfin-subsync/releases/download/v\($ver)/SubsyncStarter_\($ver).zip", checksum: $cs, timestamp: $ts}')
+            --arg targetAbi "$TARGET_ABI" \
+            '{version: $ver, changelog: $changelog, targetAbi: $targetAbi, sourceUrl: "https://github.com/Marnalas/jellyfin-subsync/releases/download/v\($ver)/SubsyncStarter_\($ver).zip", checksum: $cs, timestamp: $ts}')
 
           # Top-level metadata (guid, name, description, overview, owner, category,
           # imageUrl, ...) always comes from the repo's manifest.json, so edits made
@@ -313,9 +347,17 @@ jobs:
             EXISTING_VERSIONS=$(jq '.[0].versions // []' manifest.json)
           fi
 
-          jq -n --argjson meta "$BASE_METADATA" --argjson entry "$NEW_ENTRY" --argjson existing "$EXISTING_VERSIONS" \
-            '[$meta + {versions: (([$entry] + [$existing[] | select(.version != $entry.version)])[:5])}]' \
-            > manifest.json.tmp && mv manifest.json.tmp manifest.json
+          # Each channel (targetAbi 10.11.x vs. everything else, i.e. Jellyfin 12+)
+          # is capped at 5 versions independently, so a burst of releases on one
+          # branch never ages the other branch's releases out of the manifest.
+          jq -n --argjson meta "$BASE_METADATA" --argjson entry "$NEW_ENTRY" --argjson existing "$EXISTING_VERSIONS" '
+            ([$entry] + [$existing[] | select(.version != $entry.version)]) as $all
+            | ( ([$all[] | select(.targetAbi | startswith("10.11"))][0:5])
+              + ([$all[] | select(.targetAbi | startswith("10.11") | not)][0:5])
+              ) as $capped
+            | ($capped | sort_by(.timestamp) | reverse) as $versions
+            | [$meta + {versions: $versions}]
+          ' > manifest.json.tmp && mv manifest.json.tmp manifest.json
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
