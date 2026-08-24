@@ -12,7 +12,8 @@
                 </div>
 
                 <div class="inputContainer">
-                    <input is="emby-input" type="text" id="SidecarUrl" label="Sidecar URL" />
+                    <label class="inputLabel inputLabelUnfocused" for="SidecarUrl">Sidecar URL</label>
+                    <input is="emby-input" type="text" id="SidecarUrl" />
                     <div class="fieldDescription">
                         Base URL of the subsync-sidecar service, e.g. http://subsync-sidecar:8000
                         (use the docker compose service name so it resolves on the internal network).
@@ -38,7 +39,8 @@
                 </div>
 
                 <div class="inputContainer">
-                    <input is="emby-input" type="text" id="SubtitleExtensions" label="Subtitle extensions" />
+                    <label class="inputLabel inputLabelUnfocused" for="SubtitleExtensions">Subtitle extensions</label>
+                    <input is="emby-input" type="text" id="SubtitleExtensions" />
                     <div class="fieldDescription">
                         Comma-separated, no dots, e.g. srt,ass,ssa,vtt,sub. ffsubsync reads and
                         writes each of these formats natively, so non-SRT subtitles are synced
@@ -50,19 +52,21 @@
                 </div>
 
                 <div class="inputContainer">
-                    <input is="emby-input" type="number" id="PollIntervalMilliseconds" label="Job poll interval (ms)" />
+                    <label class="inputLabel inputLabelUnfocused" for="PollIntervalMilliseconds">Job poll interval (ms)</label>
+                    <input is="emby-input" type="number" id="PollIntervalMilliseconds" />
                 </div>
 
                 <div class="inputContainer">
-                    <input is="emby-input" type="number" id="JobTimeoutSeconds" label="Job timeout (seconds)" min="1" />
+                    <label class="inputLabel inputLabelUnfocused" for="JobTimeoutSeconds">Job timeout (seconds)</label>
+                    <input is="emby-input" type="number" id="JobTimeoutSeconds" min="1" />
                     <div class="fieldDescription">
                         How long a single sync may spend <strong>running</strong> on the sidecar.
                     </div>
                 </div>
 
                 <div class="inputContainer">
-                    <label for="QueueWaitTimeoutSeconds"></label>
-                    <input is="emby-input" type="number" id="QueueWaitTimeoutSeconds" label="Queue wait timeout (seconds)" min="0" />
+                    <label class="inputLabel inputLabelUnfocused" for="QueueWaitTimeoutSeconds">Queue wait timeout (seconds)</label>
+                    <input is="emby-input" type="number" id="QueueWaitTimeoutSeconds" min="0" />
                     <div class="fieldDescription">
                         How long a submitted job may sit queued on the sidecar before this plugin gives up
                         and cancels it. Reaching this means more work is being submitted than the sidecar
@@ -72,7 +76,8 @@
                 </div>
 
                 <div class="inputContainer">
-                    <input is="emby-input" type="number" id="SidecarRequestTimeoutSeconds" label="Sidecar request timeout (seconds)" min="1" />
+                    <label class="inputLabel inputLabelUnfocused" for="SidecarRequestTimeoutSeconds">Sidecar request timeout (seconds)</label>
+                    <input is="emby-input" type="number" id="SidecarRequestTimeoutSeconds" min="1" />
                     <div class="fieldDescription">
                         Timeout for one individual HTTP call to the sidecar (submitting, polling, cancelling),
                         not for the sync itself. Rarely needs changing.
@@ -80,7 +85,8 @@
                 </div>
 
                 <div class="inputContainer">
-                    <input is="emby-input" type="number" id="MaxParallelJobs" label="Max parallel jobs" min="1" />
+                    <label class="inputLabel inputLabelUnfocused" for="MaxParallelJobs">Max parallel jobs</label>
+                    <input is="emby-input" type="number" id="MaxParallelJobs" min="1" />
                     <div class="fieldDescription">
                         How many subtitle files the sweep submits to the sidecar at once. Default is 1.
                         <strong>Raising this only helps if the subsync-sidecar container's own
