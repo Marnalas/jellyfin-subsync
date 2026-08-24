@@ -4,37 +4,36 @@ using MediaBrowser.Common.Plugins;
 using MediaBrowser.Model.Plugins;
 using MediaBrowser.Model.Serialization;
 
-namespace Jellyfin.Subsync.Starter
+namespace Jellyfin.Subsync.Starter;
+
+public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 {
-    public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
+    public static Plugin? Instance { get; private set; }
+
+    public override string Name => "Subsync";
+
+    public override Guid Id => Guid.Parse("6e9cb927-95fc-4ab9-8267-c896060ae50e");
+
+    public override string Description =>
+        "Automatically syncs subtitles against their video using a ffsubsync sidecar.";
+
+    public Plugin(IApplicationPaths applicationPaths, IXmlSerializer xmlSerializer)
+        : base(applicationPaths, xmlSerializer)
     {
-        public static Plugin? Instance { get; private set; }
+        Instance = this;
 
-        public override string Name => "Subsync";
+        if (Configuration.NormalizeSubtitleExtensions())
+            SaveConfiguration();
+    }
 
-        public override Guid Id => Guid.Parse("6e9cb927-95fc-4ab9-8267-c896060ae50e");
-
-        public override string Description =>
-            "Automatically syncs subtitles against their video using a ffsubsync sidecar.";
-
-        public Plugin(IApplicationPaths applicationPaths, IXmlSerializer xmlSerializer)
-            : base(applicationPaths, xmlSerializer)
+    public IEnumerable<PluginPageInfo> GetPages()
+    {
+        yield return new PluginPageInfo
         {
-            Instance = this;
-
-            if (Configuration.NormalizeSubtitleExtensions())
-                SaveConfiguration();
-        }
-
-        public IEnumerable<PluginPageInfo> GetPages()
-        {
-            yield return new PluginPageInfo
-            {
-                Name = "Subsync",
-                EmbeddedResourcePath = string.Format("{0}.Configuration.configPage.html", GetType().Namespace),
-                EnableInMainMenu = true
-            };
-        }
+            Name = "Subsync",
+            EmbeddedResourcePath = $"{GetType().Namespace}.Configuration.configPage.html",
+            EnableInMainMenu = true
+        };
     }
 }
 
