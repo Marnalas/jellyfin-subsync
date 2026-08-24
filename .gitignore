@@ -62,3 +62,10 @@ __pycache__/
 .pytest_cache/
 .venv/
 venv/
+
+# JetBrains Rider
+.idea/
+*.sln.iml
+
+# AI agents / assistants (Claude Code, Cursor, Windsurf, Aider, etc.)
+.claude/

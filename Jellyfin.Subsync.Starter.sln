@@ -7,6 +7,16 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Jellyfin.Subsync.Starter", 
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Jellyfin.Subsync.Starter.Tests", "Jellyfin.Subsync.Starter.Tests\Jellyfin.Subsync.Starter.Tests.csproj", "{6ACCFF57-157A-435A-B9A1-FA983BE060B7}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution items", "Solution items", "{00F2D851-4AB1-4EF0-A1BA-C4F850CB3B00}"
+	ProjectSection(SolutionItems) = preProject
+		Directory.Build.props = Directory.Build.props
+		LICENSE = LICENSE
+		manifest.json = manifest.json
+		README.md = README.md
+		subsyncstarter-banner.png = subsyncstarter-banner.png
+		.gitignore = .gitignore
+	EndProjectSection
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
