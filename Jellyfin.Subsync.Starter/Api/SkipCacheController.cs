@@ -6,6 +6,7 @@ using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Model.Entities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Subsync.Starter.Api;
 
@@ -20,10 +21,16 @@ namespace Jellyfin.Subsync.Starter.Api;
 public class SkipCacheController(
     ISkipCache skipCache,
     ILibraryManager libraryManager,
-    IMediaSourceManager mediaSourceManager) : ControllerBase
+    IMediaSourceManager mediaSourceManager,
+    ILogger<SkipCacheController> logger) : ControllerBase
 {
     [HttpDelete]
-    public ActionResult<object> ClearAll() => Ok(new { removed = skipCache.Clear() });
+    public ActionResult<object> ClearAll()
+    {
+        var removed = skipCache.Clear();
+        logger.LogInformation("Subsync cache: cleared {Count} skip-cache entr(ies)", removed);
+        return Ok(new { removed });
+    }
 
     /// <summary>
     /// Removes cache entries for every external subtitle Jellyfin currently
@@ -45,6 +52,8 @@ public class SkipCacheController(
             .Select(stream => stream.Path!)
             .Distinct();
 
-        return Ok(new { removed = skipCache.RemoveForPaths(paths) });
+        var removed = skipCache.RemoveForPaths(paths);
+        logger.LogInformation("Subsync cache: cleared {Count} skip-cache entr(ies) for {Item}", removed, item.Name);
+        return Ok(new { removed });
     }
 }

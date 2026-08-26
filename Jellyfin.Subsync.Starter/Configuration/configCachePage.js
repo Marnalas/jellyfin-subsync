@@ -11,8 +11,23 @@ function escapeHtml(text) {
     });
 }
 
+function pad2(n) {
+    return n < 10 ? '0' + n : String(n);
+}
+
+// 'S02E05', or just 'E05' when Jellyfin has no season number for this
+// episode (e.g. some specials) - blank for anything that isn't an episode.
+function episodeLabel(item) {
+    if (typeof item.IndexNumber !== 'number') return '';
+    const episode = 'E' + pad2(item.IndexNumber);
+    return typeof item.ParentIndexNumber === 'number' ? 'S' + pad2(item.ParentIndexNumber) + episode : episode;
+}
+
 function itemSubtitle(item) {
-    if (item.SeriesName) return item.SeriesName;
+    if (item.SeriesName) {
+        const label = episodeLabel(item);
+        return label ? item.SeriesName + ' • ' + label : item.SeriesName;
+    }
     if (item.ProductionYear) return String(item.ProductionYear);
     return '';
 }
@@ -21,9 +36,10 @@ function buildResultRowHtml(item) {
     const subtitle = itemSubtitle(item);
     return '' +
         '<div class="inputContainer itemResultRow" data-item-id="' + escapeHtml(item.Id) + '" style="display:flex;align-items:center;justify-content:space-between;gap:1em;">' +
-        '<div>' +
+        '<div style="min-width:0;">' +
         '<div class="itemResultName">' + escapeHtml(item.Name) + '</div>' +
         (subtitle ? '<div class="fieldDescription itemResultSubtitle">' + escapeHtml(subtitle) + '</div>' : '') +
+        (item.Path ? '<div class="fieldDescription itemResultPath" style="word-break:break-all;">' + escapeHtml(item.Path) + '</div>' : '') +
         '</div>' +
         '<div class="itemResultAction">' +
         '<button is="emby-button" type="button" class="raised clearItemButton">' +
@@ -68,7 +84,8 @@ export default function (view) {
             searchTerm: term,
             includeItemTypes: 'Movie,Episode,Video,MusicVideo,Trailer',
             recursive: true,
-            limit: SEARCH_LIMIT
+            limit: SEARCH_LIMIT,
+            fields: 'Path'
         }).then(function (result) {
             renderResults(result.Items || []);
         });
