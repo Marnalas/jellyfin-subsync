@@ -21,8 +21,18 @@ internal static class SubtitleMatcher
     /// </summary>
     internal static IEnumerable<string>
         GetExternalSubtitlePaths(BaseItem item, IMediaSourceManager mediaSourceManager) =>
-        mediaSourceManager
-            .GetMediaStreams(new MediaStreamQuery { ItemId = item.Id, Type = MediaStreamType.Subtitle })
+        GetExternalSubtitlePaths(
+            mediaSourceManager.GetMediaStreams(new MediaStreamQuery
+                { ItemId = item.Id, Type = MediaStreamType.Subtitle }));
+
+    /// <inheritdoc cref="GetExternalSubtitlePaths(BaseItem, IMediaSourceManager)"/>
+    /// <remarks>
+    /// Takes already-fetched streams so a caller that also needs them for
+    /// something else (like building sync work) doesn't have to query
+    /// Jellyfin for the same item's streams twice.
+    /// </remarks>
+    internal static IEnumerable<string> GetExternalSubtitlePaths(IEnumerable<MediaStream> subtitleStreams) =>
+        subtitleStreams
             .Where(stream => stream.IsExternal && stream.IsExternalUrl != true && !string.IsNullOrEmpty(stream.Path))
             .Select(stream => stream.Path!)
             .Distinct();

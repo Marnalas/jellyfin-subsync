@@ -26,14 +26,6 @@ public class SyncLibrarySweepTask(
     IMediaSourceManager mediaSourceManager,
     IFolderChangeSuppressor suppressor) : IScheduledTask
 {
-    /// <summary>
-    /// A "Run Now" fired seconds after `docker compose up` shouldn't abort
-    /// on a sidecar that's still importing ffsubsync, so the health check
-    /// gets a few tries before the sweep gives up on it.
-    /// </summary>
-    private const int HealthCheckAttempts = 3;
-    private static readonly TimeSpan HealthCheckRetryDelay = TimeSpan.FromSeconds(5);
-
     private readonly SubtitleSyncOrchestrator _orchestrator = new(client, skipCache, logger, suppressor);
     private readonly LibrarySubtitleSource _source = new(libraryManager, mediaSourceManager, logger);
 
@@ -41,7 +33,8 @@ public class SyncLibrarySweepTask(
 
     public string Key => "SubsyncLibrarySweep";
 
-    public string Description => "Syncs the external subtitles in your libraries that haven't been synced yet. Only subtitles Jellyfin has already indexed are considered, so run a library scan first if you've just added some.";
+    public string Description =>
+        "Syncs the external subtitles in your libraries that haven't been synced yet. Only subtitles Jellyfin has already indexed are considered, so run a library scan first if you've just added some.";
 
     public string Category => "Subsync Starter";
 
@@ -59,13 +52,14 @@ public class SyncLibrarySweepTask(
         // Ask the sidecar before walking a six-figure library: without this,
         // an unreachable sidecar produced one timeout per subtitle for the
         // length of the whole run, with the actual cause buried in the noise.
-        if (!await IsSidecarReachableAsync(config, cancellationToken).ConfigureAwait(false))
+        if (!await SidecarHealthChecker.IsReachableAsync(client, config, logger, cancellationToken)
+                .ConfigureAwait(false))
         {
             logger.LogError(
                 "Subsync sweep: the sidecar at {Url} did not answer /health after {Attempts} attempts, so "
                 + "nothing could sync a subtitle - aborting the sweep. Check that the sidecar container is "
                 + "running and that Sidecar URL matches its compose service name and port",
-                config.SidecarUrl, HealthCheckAttempts);
+                config.SidecarUrl, SidecarHealthChecker.Attempts);
 
             // Thrown rather than returned quietly so Dashboard > Scheduled
             // Tasks shows this as Failed. A sweep that never ran reporting a
@@ -113,7 +107,8 @@ public class SyncLibrarySweepTask(
                         }
                         catch (Exception ex)
                         {
-                            logger.LogError(ex, "Subsync sweep: failed to process {Subtitle}, continuing", subtitlePath);
+                            logger.LogError(ex, "Subsync sweep: failed to process {Subtitle}, continuing",
+                                subtitlePath);
                         }
 
                         Interlocked.Increment(ref processed);
@@ -153,25 +148,6 @@ public class SyncLibrarySweepTask(
         // denominator to divide by), and rounding down can leave the bar a
         // fraction short on the last item.
         progress.Report(100);
-    }
-
-    private async Task<bool> IsSidecarReachableAsync(PluginConfiguration config, CancellationToken cancellationToken)
-    {
-        for (var attempt = 1; attempt <= HealthCheckAttempts; attempt++)
-        {
-            if (await client.IsHealthyAsync(config, cancellationToken).ConfigureAwait(false))
-                return true;
-
-            if (attempt < HealthCheckAttempts)
-            {
-                logger.LogWarning(
-                    "Subsync sweep: the sidecar didn't answer /health (attempt {Attempt} of {Attempts}), retrying",
-                    attempt, HealthCheckAttempts);
-                await Task.Delay(HealthCheckRetryDelay, cancellationToken).ConfigureAwait(false);
-            }
-        }
-
-        return false;
     }
 
     public IEnumerable<TaskTriggerInfo> GetDefaultTriggers()

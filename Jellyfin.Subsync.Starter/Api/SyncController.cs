@@ -1,6 +1,7 @@
 using System.Net.Mime;
 using Jellyfin.Subsync.Starter.Application;
 using Jellyfin.Subsync.Starter.Configuration;
+using Jellyfin.Subsync.Starter.Domain;
 using Jellyfin.Subsync.Starter.Infrastructure;
 using Jellyfin.Subsync.Starter.ScheduledTasks;
 using MediaBrowser.Common.Api;
@@ -10,6 +11,7 @@ using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Tasks;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 
@@ -55,23 +57,68 @@ public class SyncController(
         if (item is null)
             return NotFound();
 
-        var cleared = skipCache.RemoveForPaths(SubtitleMatcher.GetExternalSubtitlePaths(item, mediaSourceManager));
-        logger.LogInformation(
-            "Subsync sync: cleared {Count} skip-cache entr(ies) for {Item} before syncing", cleared, item.Name);
-
         var config = configurationProvider.GetSnapshot();
 
-        var subtitleStreams = mediaSourceManager.GetMediaStreams(new MediaStreamQuery
+        // Same reasoning as the sweep: fail fast and loudly here, before
+        // touching the skip-cache, rather than letting every subtitle below
+        // discover this one at a time.
+        if (!await SidecarHealthChecker.IsReachableAsync(client, config, logger, cancellationToken)
+                .ConfigureAwait(false))
         {
-            ItemId = item.Id,
-            Type = MediaStreamType.Subtitle
-        });
+            logger.LogError(
+                "Subsync sync: the sidecar at {Url} did not answer /health after {Attempts} attempts, aborting the sync for {Item}",
+                config.SidecarUrl, SidecarHealthChecker.Attempts, item.Name);
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, new
+            {
+                error = $"The subsync sidecar at {config.SidecarUrl} is not reachable."
+            });
+        }
+
+        IReadOnlyList<MediaStream> subtitleStreams;
+        try
+        {
+            subtitleStreams = mediaSourceManager.GetMediaStreams(new MediaStreamQuery
+            {
+                ItemId = item.Id,
+                Type = MediaStreamType.Subtitle
+            });
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Subsync sync: failed to read media streams for {Item}, aborting", item.Name);
+            return Problem("Could not read this item's media streams.",
+                statusCode: StatusCodes.Status500InternalServerError);
+        }
+
+        var cleared = skipCache.RemoveForPaths(SubtitleMatcher.GetExternalSubtitlePaths(subtitleStreams));
+        logger.LogInformation(
+            "Subsync sync: cleared {Count} skip-cache entr(ies) for {Item} before syncing", cleared, item.Name);
 
         // ISO / BDMV / VIDEO_TS: no single elementary video file for
         // ffsubsync to align against. Read from metadata, not a stat.
         var isDiscImageOrFolder = item is Video video && video.VideoType != VideoType.VideoFile;
 
         var work = SubtitleWorkBuilder.BuildWork(item.Path, isDiscImageOrFolder, subtitleStreams, config);
+        foreach (var subtitle in work.SubtitlesInOtherDirectories)
+        {
+            logger.LogWarning(
+                "Subsync sync: {Subtitle} is not in the same folder as {Video}; the sidecar syncs one folder at a time, skipping",
+                subtitle,
+                item.Path);
+        }
+
+        switch (work.Reason)
+        {
+            case ItemSkipReason.PathIsDiscImageOrFolder:
+                logger.LogWarning(
+                    "Subsync sync: {Path} is a disc image or disc folder with no single video file to align against, skipping its subtitles",
+                    item.Path);
+                break;
+            case ItemSkipReason.NoPath:
+                logger.LogDebug("Subsync sync: item {Id} has no file path, skipping", item.Id);
+                break;
+        }
+
         if (work.Group is null)
             return Ok(new { cleared, reason = work.Reason.ToString(), results = Array.Empty<object>() });
 
