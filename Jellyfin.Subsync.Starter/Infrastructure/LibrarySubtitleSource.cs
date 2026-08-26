@@ -22,10 +22,6 @@ internal sealed class LibrarySubtitleSource(
     IMediaSourceManager mediaSourceManager,
     ILogger logger)
 {
-    private readonly ILibraryManager _libraryManager = libraryManager;
-    private readonly IMediaSourceManager _mediaSourceManager = mediaSourceManager;
-    private readonly ILogger _logger = logger;
-
     /// <summary>
     /// Yields one group per library item that has subtitles worth syncing.
     /// Ids are fetched up front (a Guid list costs a couple of MB even on a
@@ -40,15 +36,15 @@ internal sealed class LibrarySubtitleSource(
         SweepProgress progress,
         CancellationToken cancellationToken)
     {
-        var itemIds = _libraryManager.GetItemIds(BuildVideoItemsQuery());
-        _logger.LogInformation("Subsync sweep: inspecting {Count} library video item(s)", itemIds.Count);
+        var itemIds = libraryManager.GetItemIds(BuildVideoItemsQuery());
+        logger.LogInformation("Subsync sweep: inspecting {Count} library video item(s)", itemIds.Count);
         progress.SetTotal(itemIds.Count);
 
         for (var i = 0; i < itemIds.Count; ++i)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var item = _libraryManager.GetItemById(itemIds[i]);
+            var item = libraryManager.GetItemById(itemIds[i]);
             if (item is null)
             {
                 // Deleted between the id query and here.
@@ -59,7 +55,7 @@ internal sealed class LibrarySubtitleSource(
             IReadOnlyList<MediaStream> subtitleStreams;
             try
             {
-                subtitleStreams = _mediaSourceManager.GetMediaStreams(new MediaStreamQuery
+                subtitleStreams = mediaSourceManager.GetMediaStreams(new MediaStreamQuery
                 {
                     ItemId = item.Id,
                     Type = MediaStreamType.Subtitle
@@ -67,7 +63,7 @@ internal sealed class LibrarySubtitleSource(
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(
+                logger.LogWarning(
                     ex,
                     "Subsync sweep: failed to read media streams for {Item}, skipping",
                     item.Path ?? item.Id.ToString());
@@ -89,7 +85,7 @@ internal sealed class LibrarySubtitleSource(
             var work = SubtitleWorkBuilder.BuildWork(item.Path, isDiscImageOrFolder, subtitleStreams, config);
             for (var j = 0; j < work.SubtitlesInOtherDirectories.Count; ++j)
             {
-                _logger.LogWarning(
+                logger.LogWarning(
                     "Subsync sweep: {Subtitle} is not in the same folder as {Video}; the sidecar syncs one folder at a time, skipping",
                     work.SubtitlesInOtherDirectories[j],
                     item.Path);
@@ -97,12 +93,12 @@ internal sealed class LibrarySubtitleSource(
 
             if (work.Reason == ItemSkipReason.PathIsDiscImageOrFolder)
             {
-                _logger.LogWarning(
+                logger.LogWarning(
                     "Subsync sweep: {Path} is a disc image or disc folder with no single video file to align against, skipping its subtitles",
                     item.Path);
             }
             else if (work.Reason == ItemSkipReason.NoPath)
-                _logger.LogDebug("Subsync sweep: item {Id} has no file path, skipping", item.Id);
+                logger.LogDebug("Subsync sweep: item {Id} has no file path, skipping", item.Id);
 
             if (work.Group is not null)
                 yield return work.Group;

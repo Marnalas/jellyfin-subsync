@@ -27,7 +27,6 @@ public interface IFolderChangeSuppressor
 /// </summary>
 internal sealed class FolderChangeSuppressor(ILibraryMonitor libraryMonitor) : IFolderChangeSuppressor
 {
-    private readonly ILibraryMonitor _libraryMonitor = libraryMonitor;
     private readonly Lock _gate = new();
     private readonly Dictionary<string, int> _refCounts = new(StringComparer.OrdinalIgnoreCase);
 
@@ -40,7 +39,7 @@ internal sealed class FolderChangeSuppressor(ILibraryMonitor libraryMonitor) : I
             else
             {
                 _refCounts[folder] = 1;
-                _libraryMonitor.ReportFileSystemChangeBeginning(folder);
+                libraryMonitor.ReportFileSystemChangeBeginning(folder);
             }
         }
 
@@ -65,7 +64,7 @@ internal sealed class FolderChangeSuppressor(ILibraryMonitor libraryMonitor) : I
         // refreshPath: false - nothing needs a metadata refresh, the sidecar
         // only rewrites subtitle bytes, it never adds/removes/moves media.
         if (last)
-            _libraryMonitor.ReportFileSystemChangeComplete(folder, refreshPath: false);
+            libraryMonitor.ReportFileSystemChangeComplete(folder, refreshPath: false);
     }
 
     private sealed class Scope(FolderChangeSuppressor owner, string folder) : IDisposable

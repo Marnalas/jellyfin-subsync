@@ -33,8 +33,6 @@ public sealed class SubsyncClient(
     /// </summary>
     private const int MaxConsecutivePollFailures = 5;
 
-    private readonly IHttpClientFactory _httpClientFactory = httpClientFactory;
-    private readonly ILogger _logger = logger;
     private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
 
     public async Task<bool> IsHealthyAsync(PluginConfiguration config, CancellationToken cancellationToken)
@@ -49,7 +47,7 @@ public sealed class SubsyncClient(
             if (response.IsSuccessStatusCode)
                 return true;
 
-            _logger.LogError(
+            logger.LogError(
                 "Subsync: the sidecar at {Url} answered /health with {Status}",
                 baseUrl, (int)response.StatusCode);
             return false;
@@ -60,7 +58,7 @@ public sealed class SubsyncClient(
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Subsync: the sidecar at {Url} did not answer /health", baseUrl);
+            logger.LogError(ex, "Subsync: the sidecar at {Url} did not answer /health", baseUrl);
             return false;
         }
     }
@@ -91,7 +89,7 @@ public sealed class SubsyncClient(
                 // Re-sending identical input won't change the answer, so
                 // this is the file's problem and not the sidecar's - it
                 // must not be reported as "sidecar unreachable".
-                _logger.LogError(
+                logger.LogError(
                     "Subsync: the sidecar rejected the job for {Subtitle} with {Status}",
                     subtitleFilename, (int)response.StatusCode);
                 return SyncOutcome.Failed;
@@ -108,13 +106,13 @@ public sealed class SubsyncClient(
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Subsync: failed to submit sync job for {Subtitle}", subtitleFilename);
+            logger.LogError(ex, "Subsync: failed to submit sync job for {Subtitle}", subtitleFilename);
             return SyncOutcome.SidecarUnreachable;
         }
 
         if (created is null || string.IsNullOrEmpty(created.JobId))
         {
-            _logger.LogError("Subsync: sidecar returned no job id for {Subtitle}", subtitleFilename);
+            logger.LogError("Subsync: sidecar returned no job id for {Subtitle}", subtitleFilename);
             return SyncOutcome.SidecarUnreachable;
         }
 
@@ -164,7 +162,7 @@ public sealed class SubsyncClient(
                     // a retryable blip, as this used to, burned the entire
                     // job budget re-asking a question that already had its
                     // final answer.
-                    _logger.LogError(
+                    logger.LogError(
                         "Subsync: the sidecar no longer knows job {JobId} for {Subtitle} (it most likely "
                         + "restarted); giving up on this file, the next sweep will retry it",
                         created.JobId, subtitleFilename);
@@ -187,7 +185,7 @@ public sealed class SubsyncClient(
             {
                 if (++consecutiveFailures >= MaxConsecutivePollFailures)
                 {
-                    _logger.LogError(
+                    logger.LogError(
                         ex,
                         "Subsync: {Count} consecutive polling failures for job {JobId} ({Subtitle}); "
                         + "giving up on this file",
@@ -196,7 +194,7 @@ public sealed class SubsyncClient(
                     return SyncOutcome.SidecarUnreachable;
                 }
 
-                _logger.LogWarning(
+                logger.LogWarning(
                     ex,
                     "Subsync: polling job {JobId} failed ({Count}/{Max}), retrying",
                     created.JobId, consecutiveFailures, MaxConsecutivePollFailures);
@@ -206,16 +204,16 @@ public sealed class SubsyncClient(
             switch (status.Status)
             {
                 case "done":
-                    _logger.LogInformation("Subsync: synced {Subtitle}", subtitleFilename);
+                    logger.LogInformation("Subsync: synced {Subtitle}", subtitleFilename);
                     return SyncOutcome.Synced;
 
                 case "failed":
-                    _logger.LogError(
+                    logger.LogError(
                         "Subsync: sync failed for {Subtitle}: {Error}", subtitleFilename, status.Error);
                     return SyncOutcome.Failed;
 
                 case "cancelled":
-                    _logger.LogWarning(
+                    logger.LogWarning(
                         "Subsync: the sidecar reported job {JobId} for {Subtitle} as cancelled",
                         created.JobId, subtitleFilename);
                     return SyncOutcome.Failed;
@@ -236,7 +234,7 @@ public sealed class SubsyncClient(
                 // anyway.
                 if (queueBudget is not null && _timeProvider.GetUtcNow() - submittedAt > queueBudget)
                 {
-                    _logger.LogError(
+                    logger.LogError(
                         "Subsync: job {JobId} for {Subtitle} was still queued after {Seconds}s, cancelling it. "
                         + "Check that Max parallel jobs isn't set well above the sidecar's MAX_PARALLEL_JOBS",
                         created.JobId, subtitleFilename, config.QueueWaitTimeoutSeconds);
@@ -254,7 +252,7 @@ public sealed class SubsyncClient(
 
                 if (elapsed > runBudget)
                 {
-                    _logger.LogError(
+                    logger.LogError(
                         "Subsync: job {JobId} for {Subtitle} ran past {Seconds}s without finishing, cancelling it "
                         + "so it can't replace the subtitle after we've stopped tracking it",
                         created.JobId, subtitleFilename, effectiveTimeout);
@@ -275,7 +273,7 @@ public sealed class SubsyncClient(
     /// </summary>
     private HttpClient CreateClient(PluginConfiguration config)
     {
-        var http = _httpClientFactory.CreateClient(nameof(SubsyncClient));
+        var http = httpClientFactory.CreateClient(nameof(SubsyncClient));
         // Assigning Timeout is only legal because this instance is brand new
         // and no request has started on it - HttpClient throws once one has.
         // It's per HTTP call, not per job: a poll hanging on a half-open
@@ -309,7 +307,7 @@ public sealed class SubsyncClient(
 
             if (!response.IsSuccessStatusCode)
             {
-                _logger.LogDebug(
+                logger.LogDebug(
                     "Subsync: the sidecar answered {Status} when cancelling job {JobId}; if it predates "
                     + "3.0.0.0 it has no cancel endpoint and the job may still replace {Subtitle}",
                     (int)response.StatusCode, jobId, subtitleFilename);
@@ -317,7 +315,7 @@ public sealed class SubsyncClient(
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "Subsync: couldn't cancel job {JobId}", jobId);
+            logger.LogDebug(ex, "Subsync: couldn't cancel job {JobId}", jobId);
         }
     }
 

@@ -10,7 +10,6 @@ namespace Jellyfin.Subsync.Starter.Infrastructure;
 /// </summary>
 internal sealed class SweepProgress(IProgress<double> progress)
 {
-    private readonly IProgress<double> _progress = progress;
     private readonly Lock _lock = new();
     private int _total;
     private int _completed;
@@ -61,7 +60,7 @@ internal sealed class SweepProgress(IProgress<double> progress)
                 return;
 
             _lastReported = percent;
-            _progress.Report(percent);
+            progress.Report(percent);
         }
     }
 }

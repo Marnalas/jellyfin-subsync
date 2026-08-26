@@ -34,10 +34,6 @@ public class SyncLibrarySweepTask(
     private const int HealthCheckAttempts = 3;
     private static readonly TimeSpan HealthCheckRetryDelay = TimeSpan.FromSeconds(5);
 
-    private readonly ILogger<SyncLibrarySweepTask> _logger = logger;
-    private readonly ISubsyncClient _client = client;
-    private readonly ISkipCache _skipCache = skipCache;
-    private readonly IPluginConfigurationProvider _configurationProvider = configurationProvider;
     private readonly SubtitleSyncOrchestrator _orchestrator = new(client, skipCache, logger, suppressor);
     private readonly LibrarySubtitleSource _source = new(libraryManager, mediaSourceManager, logger);
 
@@ -55,7 +51,7 @@ public class SyncLibrarySweepTask(
         // hours; re-reading it per file meant a config save halfway through
         // silently changed the path mappings and timeouts underneath a run
         // already in progress.
-        var config = _configurationProvider.GetSnapshot();
+        var config = configurationProvider.GetSnapshot();
         var maxParallelJobs = Math.Max(1, config.MaxParallelJobs);
         var processed = 0;
         var sweepProgress = new SweepProgress(progress);
@@ -65,7 +61,7 @@ public class SyncLibrarySweepTask(
         // length of the whole run, with the actual cause buried in the noise.
         if (!await IsSidecarReachableAsync(config, cancellationToken).ConfigureAwait(false))
         {
-            _logger.LogError(
+            logger.LogError(
                 "Subsync sweep: the sidecar at {Url} did not answer /health after {Attempts} attempts, so "
                 + "nothing could sync a subtitle - aborting the sweep. Check that the sidecar container is "
                 + "running and that Sidecar URL matches its compose service name and port",
@@ -117,7 +113,7 @@ public class SyncLibrarySweepTask(
                         }
                         catch (Exception ex)
                         {
-                            _logger.LogError(ex, "Subsync sweep: failed to process {Subtitle}, continuing", subtitlePath);
+                            logger.LogError(ex, "Subsync sweep: failed to process {Subtitle}, continuing", subtitlePath);
                         }
 
                         Interlocked.Increment(ref processed);
@@ -135,7 +131,7 @@ public class SyncLibrarySweepTask(
             // here. This is the only guaranteed point to get them on disk -
             // including on a cancelled run, where everything already synced
             // still deserves to be skipped next time.
-            _skipCache.Flush();
+            skipCache.Flush();
         }
 
         // After the sweep, never before it: by now the mounts have
@@ -143,15 +139,15 @@ public class SyncLibrarySweepTask(
         // hasn't finished mounting looks exactly like a deleted library.
         // Outside the finally for the same reason - a cancelled sweep never
         // visited most of the library and has no business pruning it.
-        var removed = _skipCache.RemoveMissingFiles();
+        var removed = skipCache.RemoveMissingFiles();
         if (removed > 0)
         {
-            _logger.LogInformation(
+            logger.LogInformation(
                 "Subsync sweep: dropped {Count} skip-cache entr(ies) for files that no longer exist", removed);
-            _skipCache.Flush();
+            skipCache.Flush();
         }
 
-        _logger.LogInformation("Subsync sweep: checked the library, {Count} subtitle(s) touched", processed);
+        logger.LogInformation("Subsync sweep: checked the library, {Count} subtitle(s) touched", processed);
 
         // An empty library never reports anything above (there's no
         // denominator to divide by), and rounding down can leave the bar a
@@ -163,12 +159,12 @@ public class SyncLibrarySweepTask(
     {
         for (var attempt = 1; attempt <= HealthCheckAttempts; attempt++)
         {
-            if (await _client.IsHealthyAsync(config, cancellationToken).ConfigureAwait(false))
+            if (await client.IsHealthyAsync(config, cancellationToken).ConfigureAwait(false))
                 return true;
 
             if (attempt < HealthCheckAttempts)
             {
-                _logger.LogWarning(
+                logger.LogWarning(
                     "Subsync sweep: the sidecar didn't answer /health (attempt {Attempt} of {Attempts}), retrying",
                     attempt, HealthCheckAttempts);
                 await Task.Delay(HealthCheckRetryDelay, cancellationToken).ConfigureAwait(false);
