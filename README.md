@@ -65,6 +65,9 @@ No GPU is required - the default `webrtc` VAD `ffsubsync` uses is CPU-only.
   timeouts, poll interval.
 - Integrates with Jellyfin's native scheduled-task system: manual "Run
   Now", progress reporting, standard scheduling UI.
+- Suppresses Jellyfin's library file-watcher on a subtitle's folder while
+  the synced file is being written, so Jellyfin doesn't redownload/overwrite
+  the subtitle that was just synced.
 - Sync work runs in a separate sidecar service, so the Jellyfin container
   itself needs no Docker socket or extra privileges.
 - CPU-only - no GPU required.
