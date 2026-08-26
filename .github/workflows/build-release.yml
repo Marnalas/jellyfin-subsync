@@ -130,16 +130,19 @@ jobs:
         run: pytest
 
   # ── Check if release already exists ─────────────────────────────────
-  # Test-channel (feature/*, hotfix/*) builds don't bump <Version> by hand,
-  # so they can't be gated on a tag-existence check: instead they keep the
-  # MAJOR.MINOR.PATCH from Directory.Build.props and swap the 4th component
-  # for the (workflow-wide unique) run number, and always release.
+  # The manifest version always matches <Version> verbatim - on test channels
+  # (feature/*, hotfix/*) just as on main/10.11, it's the pusher's job to bump
+  # it before a push that should produce a new release. Test and production
+  # tags live in separate namespaces (test-v* vs v*), so the two channels'
+  # tag-existence checks (and therefore "already released?" state) never
+  # collide even when both happen to hold the same <Version> at once.
   check-version:
     needs: [channel]
     runs-on: ubuntu-latest
     outputs:
       should_release: ${{ steps.check.outputs.should_release }}
       version: ${{ steps.check.outputs.version }}
+      tag: ${{ steps.check.outputs.tag }}
     steps:
       - uses: actions/checkout@v7
 
@@ -148,19 +151,21 @@ jobs:
         env:
           IS_TEST: ${{ needs.channel.outputs.is_test }}
         run: |
-          BASE_VERSION=$(grep -oP '(?<=<Version>)[^<]+' Directory.Build.props)
+          VERSION=$(grep -oP '(?<=<Version>)[^<]+' Directory.Build.props)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
           if [ "$IS_TEST" = "true" ]; then
-            VERSION="$(echo "$BASE_VERSION" | cut -d. -f1-3).${{ github.run_number }}"
-            echo "version=$VERSION" >> $GITHUB_OUTPUT
-            echo "should_release=true" >> $GITHUB_OUTPUT
+            TAG="test-v${VERSION}"
           else
-            echo "version=$BASE_VERSION" >> $GITHUB_OUTPUT
-            if git ls-remote --tags origin "refs/tags/v${BASE_VERSION}" | grep -q .; then
-              echo "should_release=false" >> $GITHUB_OUTPUT
-              echo "::notice::Tag v${BASE_VERSION} already exists — skipping release"
-            else
-              echo "should_release=true" >> $GITHUB_OUTPUT
-            fi
+            TAG="v${VERSION}"
+          fi
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+
+          if git ls-remote --tags origin "refs/tags/${TAG}" | grep -q .; then
+            echo "should_release=false" >> $GITHUB_OUTPUT
+            echo "::notice::Tag ${TAG} already exists — skipping release"
+          else
+            echo "should_release=true" >> $GITHUB_OUTPUT
           fi
 
   # ── Build + push the sidecar image ──────────────────────────────────
@@ -313,27 +318,16 @@ jobs:
         run: dotnet build --configuration Release --no-restore
 
       - name: Create plugin package
-        id: package
         env:
           CHANGELOG: ${{ steps.changelog.outputs.changelog }}
           TFM: ${{ needs.channel.outputs.tfm }}
           TARGET_ABI: ${{ needs.channel.outputs.target_abi }}
-          IS_TEST: ${{ needs.channel.outputs.is_test }}
         run: |
           VERSION="${{ needs.check-version.outputs.version }}"
           if [[ ! "$VERSION" =~ ^[0-9]+(\.[0-9]+){3}$ ]]; then
             echo "::error::Invalid plugin version: $VERSION"
             exit 1
           fi
-          # Test-channel releases tag as test-v<version> instead of v<version> so
-          # they never collide with, or pollute, the production tag namespace
-          # that the changelog step's `git tag -l 'v*'` search relies on.
-          if [ "$IS_TEST" = "true" ]; then
-            TAG="test-v${VERSION}"
-          else
-            TAG="v${VERSION}"
-          fi
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           mkdir -p release
           cp Jellyfin.Subsync.Starter/bin/Release/${TFM}/Jellyfin.Subsync.Starter.dll release/
@@ -374,7 +368,7 @@ jobs:
           CHANGELOG: ${{ steps.changelog.outputs.changelog }}
           TARGET_ABI: ${{ needs.channel.outputs.target_abi }}
           IS_TEST: ${{ needs.channel.outputs.is_test }}
-          TAG: ${{ steps.package.outputs.tag }}
+          TAG: ${{ needs.check-version.outputs.tag }}
         run: |
           VERSION="${{ needs.check-version.outputs.version }}"
           CHECKSUM="${{ steps.checksum.outputs.checksum }}"
@@ -450,8 +444,8 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: ${{ steps.package.outputs.tag }}
-          name: ${{ needs.channel.outputs.is_test == 'true' && format('Subsync {0} ({1})', steps.package.outputs.tag, github.ref_name) || format('Subsync {0}', steps.package.outputs.tag) }}
+          tag_name: ${{ needs.check-version.outputs.tag }}
+          name: ${{ needs.channel.outputs.is_test == 'true' && format('Subsync {0} ({1})', needs.check-version.outputs.tag, github.ref_name) || format('Subsync {0}', needs.check-version.outputs.tag) }}
           prerelease: ${{ needs.channel.outputs.is_test }}
           files: |
             SubsyncStarter_${{ needs.check-version.outputs.version }}.zip
