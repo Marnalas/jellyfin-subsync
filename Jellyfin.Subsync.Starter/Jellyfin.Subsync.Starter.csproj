@@ -17,6 +17,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Jellyfin.Model" Version="10.11.0" />
     <PackageReference Include="Jellyfin.Controller" Version="10.11.0" />
     <PackageReference Include="Microsoft.Extensions.Http" Version="9.0.18" />
@@ -25,6 +29,8 @@
   <ItemGroup>
     <None Remove="Configuration\configPage.html" />
     <EmbeddedResource Include="Configuration\configPage.html" />
+    <None Remove="Configuration\configCachePage.html" />
+    <EmbeddedResource Include="Configuration\configCachePage.html" />
   </ItemGroup>
 
 </Project>

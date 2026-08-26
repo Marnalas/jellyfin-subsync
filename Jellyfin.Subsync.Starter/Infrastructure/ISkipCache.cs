@@ -14,7 +14,7 @@ namespace Jellyfin.Subsync.Starter.Infrastructure
 
         /// <summary>
         /// Persists whatever <see cref="MarkSynced"/> has batched up. Called at
-        /// the end of a sweep, including a cancelled one.
+        /// the end of a sweep, including a canceled one.
         /// </summary>
         void Flush();
 
@@ -24,5 +24,11 @@ namespace Jellyfin.Subsync.Starter.Infrastructure
         /// implementation for why.
         /// </summary>
         int RemoveMissingFiles();
+
+        /// <summary>Removes every tracked entry. Returns how many were removed.</summary>
+        int Clear();
+
+        /// <summary>Removes the given paths if present. Returns how many were actually removed.</summary>
+        int RemoveForPaths(IEnumerable<string> subtitlePaths);
     }
 }

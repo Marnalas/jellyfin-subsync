@@ -1,0 +1,170 @@
+<div id="SubsyncCachePage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button">
+    <div data-role="content">
+        <div class="content-primary">
+            <div style="max-width:60em;margin:auto;">
+                <div class="verticalSection">
+                    <h2>Subsync cache</h2>
+                    <p>
+                        Subsync skips a subtitle it has already synced, so repeat sweeps don't redo the same work.
+                        Use this page to make it forget - either everything, or just what it knows about one item.
+                    </p>
+                </div>
+
+                <div class="verticalSection">
+                    <h3>Clear everything</h3>
+                    <div class="inputContainer">
+                        <div class="fieldDescription">
+                            Clearing the cache makes every tracked subtitle look unsynced again, so the next
+                            sweep re-checks all of them.
+                        </div>
+                        <button is="emby-button" type="button" id="ClearAllButton" class="raised block">
+                            <span>Clear all cached results</span>
+                        </button>
+                        <div class="fieldDescription" id="ClearAllStatus"></div>
+                    </div>
+                </div>
+
+                <div class="verticalSection">
+                    <h3>Clear one item</h3>
+                    <div class="inputContainer">
+                        <input is="emby-input" type="text" id="ItemSearch" label="Search for a movie or episode" />
+                        <div class="fieldDescription">
+                            Find the item, then clear just its cached subtitles - useful after manually fixing a
+                            subtitle so it gets re-synced instead of being skipped as already synced.
+                        </div>
+                        <div id="ItemSearchResults"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script type="text/javascript">
+        (function () {
+            var SEARCH_DEBOUNCE_MS = 300;
+            var SEARCH_LIMIT = 15;
+            var searchTimer = null;
+
+            function byId(id) {
+                return document.querySelector('#' + id);
+            }
+
+            var htmlEscapes = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+            function escapeHtml(text) {
+                return (text || '').replace(/[&<>"']/g, function (c) { return htmlEscapes[c]; });
+            }
+
+            function itemSubtitle(item) {
+                if (item.SeriesName) return item.SeriesName;
+                if (item.ProductionYear) return String(item.ProductionYear);
+                return '';
+            }
+
+            function buildResultRowHtml(item) {
+                var subtitle = itemSubtitle(item);
+                return '' +
+                    '<div class="inputContainer itemResultRow" data-item-id="' + escapeHtml(item.Id) + '" style="display:flex;align-items:center;justify-content:space-between;gap:1em;">' +
+                        '<div>' +
+                            '<div class="itemResultName">' + escapeHtml(item.Name) + '</div>' +
+                            (subtitle ? '<div class="fieldDescription itemResultSubtitle">' + escapeHtml(subtitle) + '</div>' : '') +
+                        '</div>' +
+                        '<div class="itemResultAction">' +
+                            '<button is="emby-button" type="button" class="raised clearItemButton">' +
+                                '<span>Clear</span>' +
+                            '</button>' +
+                        '</div>' +
+                    '</div>';
+            }
+
+            function renderResults(items) {
+                var container = byId('ItemSearchResults');
+                if (items.length === 0) {
+                    container.innerHTML = '<div class="fieldDescription">No matching items.</div>';
+                    return;
+                }
+                container.innerHTML = items.map(buildResultRowHtml).join('');
+            }
+
+            function searchItems(term) {
+                if (!term) {
+                    byId('ItemSearchResults').innerHTML = '';
+                    return;
+                }
+
+                ApiClient.getItems(ApiClient.getCurrentUserId(), {
+                    searchTerm: term,
+                    includeItemTypes: 'Movie,Episode,Video,MusicVideo,Trailer',
+                    recursive: true,
+                    limit: SEARCH_LIMIT
+                }).then(function (result) {
+                    renderResults(result.Items || []);
+                });
+            }
+
+            function clearItem(row) {
+                var itemId = row.dataset.itemId;
+                var action = row.querySelector('.itemResultAction');
+                var button = row.querySelector('.clearItemButton');
+                button.disabled = true;
+
+                ApiClient.ajax({
+                    type: 'DELETE',
+                    url: ApiClient.getUrl('Subsync/SkipCache/Items/' + itemId),
+                    dataType: 'json'
+                }).then(function (result) {
+                    action.textContent = result.removed > 0
+                        ? 'Cleared ' + result.removed
+                        : 'Nothing cached for this item';
+                }).catch(function () {
+                    button.disabled = false;
+                    action.textContent = 'Failed to clear - try again';
+                });
+            }
+
+            function clearAll() {
+                if (!window.confirm('Clear the entire Subsync cache? Every synced subtitle will be checked again on the next sweep.'))
+                    return;
+
+                var button = byId('ClearAllButton');
+                var status = byId('ClearAllStatus');
+                button.disabled = true;
+                status.textContent = '';
+
+                ApiClient.ajax({
+                    type: 'DELETE',
+                    url: ApiClient.getUrl('Subsync/SkipCache'),
+                    dataType: 'json'
+                }).then(function (result) {
+                    button.disabled = false;
+                    status.textContent = result.removed > 0
+                        ? 'Cleared ' + result.removed + ' cached result(s).'
+                        : 'Cache was already empty.';
+                }).catch(function () {
+                    button.disabled = false;
+                    status.textContent = 'Failed to clear the cache - try again.';
+                });
+            }
+
+            byId('SubsyncCachePage')
+                .addEventListener('pageshow', function () {
+                    byId('ItemSearch').value = '';
+                    byId('ItemSearchResults').innerHTML = '';
+                    byId('ClearAllStatus').textContent = '';
+                });
+
+            byId('ClearAllButton').addEventListener('click', clearAll);
+
+            byId('ItemSearch').addEventListener('input', function () {
+                var term = this.value.trim();
+                if (searchTimer) window.clearTimeout(searchTimer);
+                searchTimer = window.setTimeout(function () { searchItems(term); }, SEARCH_DEBOUNCE_MS);
+            });
+
+            byId('ItemSearchResults').addEventListener('click', function (e) {
+                var button = e.target.closest('.clearItemButton');
+                if (!button) return;
+                clearItem(button.closest('.itemResultRow'));
+            });
+        })();
+    </script>
+</div>

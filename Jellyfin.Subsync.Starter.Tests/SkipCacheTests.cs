@@ -15,7 +15,9 @@ namespace Jellyfin.Subsync.Starter.Tests
     /// </summary>
     public sealed class SkipCacheTests : IDisposable
     {
-        private readonly string _root = Path.Combine(Path.GetTempPath(), "subsync-skipcache-tests", Path.GetRandomFileName());
+        private readonly string _root =
+            Path.Combine(Path.GetTempPath(), "subsync-skipcache-tests", Path.GetRandomFileName());
+
         private readonly string _dataFolder;
         private readonly string _library;
 
@@ -167,7 +169,8 @@ namespace Jellyfin.Subsync.Starter.Tests
         [Fact]
         public void RemoveMissingFiles_DropsDeletedFiles()
         {
-            var kept = new[] { WriteSubtitle("keep1.srt", "1"), WriteSubtitle("keep2.srt", "2"), WriteSubtitle("keep3.srt", "3") };
+            var kept = new[]
+                { WriteSubtitle("keep1.srt", "1"), WriteSubtitle("keep2.srt", "2"), WriteSubtitle("keep3.srt", "3") };
             var deleted = WriteSubtitle("gone.srt", "4");
 
             using var cache = NewCache();
@@ -240,6 +243,59 @@ namespace Jellyfin.Subsync.Starter.Tests
 
             using var cache = NewCache();
             Assert.False(cache.IsAlreadySynced(subtitle));
+        }
+
+        [Fact]
+        public void Clear_RemovesEverythingAndPersistsImmediately()
+        {
+            var paths = new[] { WriteSubtitle("a.srt", "1"), WriteSubtitle("b.srt", "2") };
+
+            using var cache = NewCache();
+            foreach (var path in paths)
+                cache.MarkSynced(path);
+
+            Assert.Equal(2, cache.Clear());
+            Assert.Empty(ReadRawCache());
+            Assert.False(cache.IsAlreadySynced(paths[0]));
+        }
+
+        [Fact]
+        public void Clear_OnAnEmptyCache_IsANoOp()
+        {
+            using var cache = NewCache();
+            Assert.Equal(0, cache.Clear());
+            Assert.False(File.Exists(CachePath));
+        }
+
+        [Fact]
+        public void RemoveForPaths_RemovesOnlyTheGivenPathsAndPersistsImmediately()
+        {
+            var kept = WriteSubtitle("keep.srt", "1");
+            var removed = WriteSubtitle("remove.srt", "2");
+
+            using var cache = NewCache();
+            cache.MarkSynced(kept);
+            cache.MarkSynced(removed);
+
+            Assert.Equal(1, cache.RemoveForPaths([removed, "/never/tracked.srt"]));
+
+            var remaining = ReadRawCache();
+            Assert.Single(remaining);
+            Assert.Contains(kept, remaining.Keys);
+            Assert.False(cache.IsAlreadySynced(removed));
+        }
+
+        [Fact]
+        public void RemoveForPaths_WithNoMatches_IsANoOp()
+        {
+            var kept = WriteSubtitle("keep.srt", "1");
+
+            using var cache = NewCache();
+            cache.MarkSynced(kept);
+            cache.Flush();
+
+            Assert.Equal(0, cache.RemoveForPaths(["/never/tracked.srt"]));
+            Assert.Single(ReadRawCache());
         }
     }
 }

@@ -32,6 +32,7 @@ namespace Jellyfin.Subsync.Starter.Infrastructure
         /// write amplification.
         /// </summary>
         private const int SaveBatchSize = 25;
+
         private static readonly TimeSpan SaveInterval = TimeSpan.FromSeconds(30);
 
         private readonly string _path;
@@ -191,16 +192,14 @@ namespace Jellyfin.Subsync.Starter.Infrastructure
         {
             lock (_lock)
             {
-                List<string> missing = [];
-                foreach (var path in _hashes.Keys)
-                {
-                    var directory = Path.GetDirectoryName(path);
-                    if (string.IsNullOrEmpty(directory) || !Directory.Exists(directory))
-                        continue;
-
-                    if (!File.Exists(path))
-                        missing.Add(path);
-                }
+                List<string> missing =
+                [
+                    .. from path in _hashes.Keys
+                    let directory = Path.GetDirectoryName(path)
+                    where !string.IsNullOrEmpty(directory) && Directory.Exists(directory)
+                    where !File.Exists(path)
+                    select path
+                ];
 
                 if (missing.Count == 0)
                     return 0;
@@ -219,6 +218,44 @@ namespace Jellyfin.Subsync.Starter.Infrastructure
 
                 _pendingWrites += missing.Count;
                 return missing.Count;
+            }
+        }
+
+        /// <summary>
+        /// Persists immediately rather than through the batched MarkSynced path -
+        /// this is a rare, interactive admin action, not sweep hot-path, so there's
+        /// no write-amplification concern to batch against.
+        /// </summary>
+        public int Clear()
+        {
+            lock (_lock)
+            {
+                var count = _hashes.Count;
+                if (count == 0)
+                    return 0;
+
+                _hashes.Clear();
+                Save();
+                _pendingWrites = 0;
+                _lastSaveUtc = DateTime.UtcNow;
+                return count;
+            }
+        }
+
+        /// <summary>See <see cref="Clear"/> for why this persists immediately instead of batching.</summary>
+        public int RemoveForPaths(IEnumerable<string> subtitlePaths)
+        {
+            lock (_lock)
+            {
+                var removed = subtitlePaths.Count(path => _hashes.Remove(path));
+
+                if (removed == 0)
+                    return 0;
+
+                Save();
+                _pendingWrites = 0;
+                _lastSaveUtc = DateTime.UtcNow;
+                return removed;
             }
         }
 
@@ -268,15 +305,13 @@ namespace Jellyfin.Subsync.Starter.Infrastructure
             }
             catch (Exception ex)
             {
-                if (!_legacyHashUnavailableLogged)
-                {
-                    _legacyHashUnavailableLogged = true;
-                    _logger.LogWarning(
-                        ex,
-                        "Subsync: MD5 is unavailable on this host, so skip-cache entries written before the "
-                        + "SHA-256 migration can't be verified. Those files are synced once more, then tracked "
-                        + "by SHA-256 like everything else");
-                }
+                if (_legacyHashUnavailableLogged) return false;
+                _legacyHashUnavailableLogged = true;
+                _logger.LogWarning(
+                    ex,
+                    "Subsync: MD5 is unavailable on this host, so skip-cache entries written before the "
+                    + "SHA-256 migration can't be verified. Those files are synced once more, then tracked "
+                    + "by SHA-256 like everything else");
 
                 return false;
             }

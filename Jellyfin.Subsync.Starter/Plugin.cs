@@ -6,7 +6,7 @@ using MediaBrowser.Model.Serialization;
 
 namespace Jellyfin.Subsync.Starter
 {
-    public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
+    public sealed class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     {
         public static Plugin? Instance { get; private set; }
 
@@ -31,8 +31,14 @@ namespace Jellyfin.Subsync.Starter
             yield return new PluginPageInfo
             {
                 Name = "Subsync",
-                EmbeddedResourcePath = string.Format("{0}.Configuration.configPage.html", GetType().Namespace),
+                EmbeddedResourcePath = $"{GetType().Namespace}.Configuration.configPage.html",
                 EnableInMainMenu = true
+            };
+            yield return new PluginPageInfo
+            {
+                Name = "Cache",
+                EmbeddedResourcePath = $"{GetType().Namespace}.Configuration.configCachePage.html",
+                MenuIcon = "closed_caption"
             };
         }
 
