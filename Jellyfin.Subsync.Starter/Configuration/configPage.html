@@ -112,8 +112,8 @@
 
     <script type="text/javascript">
         (function () {
-            var pluginId = '6e9cb927-95fc-4ab9-8267-c896060ae50e';
-            var MAX_PARALLEL_JOBS_CEILING = 32; // fixed, reasonable upper bound
+            const pluginId = '6e9cb927-95fc-4ab9-8267-c896060ae50e';
+            const MAX_PARALLEL_JOBS_CEILING = 32; // fixed, reasonable upper bound
 
             function byId(id) {
                 return document.querySelector('#' + id);
@@ -131,7 +131,7 @@
             // below `min`. A plain `|| fallback` would treat a deliberate 0 as
             // blank, which matters for fields where 0 is a legitimate value.
             function getIntValue(id, fallback, min) {
-                var parsed = parseInt(byId(id).value, 10);
+                const parsed = parseInt(byId(id).value, 10);
                 if (isNaN(parsed) || (typeof min === 'number' && parsed < min)) {
                     return fallback;
                 }
@@ -146,7 +146,7 @@
                 return (a || '').toLowerCase() === (b || '').toLowerCase();
             }
 
-            var htmlEscapes = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+            const htmlEscapes = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
             function escapeHtml(text) {
                 return (text || '').replace(/[&<>"']/g, function (c) { return htmlEscapes[c]; });
             }
@@ -160,10 +160,10 @@
             // has multiple locations under one old parent entry.
             function migrateFromWatchedPathsMaps(oldEntries, libraries) {
                 return libraries.map(function (library) {
-                    var pathMappings = [];
-                    var anyMatch = false;
+                    const pathMappings = [];
+                    let anyMatch = false;
                     (library.Locations || []).forEach(function (location) {
-                        var oldEntry = (oldEntries || []).find(function (e) {
+                        const oldEntry = (oldEntries || []).find(function (e) {
                             return stripTrailingSlash(e.JellyfinPath) === stripTrailingSlash(location);
                         });
                         if (oldEntry) {
@@ -181,10 +181,10 @@
             }
 
             function buildLibraryBlockHtml(library, existing) {
-                var checked = existing && existing.Enabled ? ' checked' : '';
-                var rows = (library.Locations || []).map(function (location) {
-                    var priorEntry = existing && existing.PathMappings.find(function (e) { return e.JellyfinPath === location; });
-                    var value = priorEntry ? priorEntry.SidecarPath : '';
+                const checked = existing && existing.Enabled ? ' checked' : '';
+                const rows = (library.Locations || []).map(function (location) {
+                    const priorEntry = existing && existing.PathMappings.find(function (e) { return e.JellyfinPath === location; });
+                    const value = priorEntry ? priorEntry.SidecarPath : '';
                     return '' +
                         '<div class="inputContainer locationRow" data-jellyfin-path="' + escapeHtml(location) + '">' +
                             '<label class="inputLabel inputLabelUnfocused">' + escapeHtml(location) + '</label>' +
@@ -205,7 +205,7 @@
 
             function renderLibraryList(libraries, existingMappings) {
                 byId('LibraryList').innerHTML = libraries.map(function (library) {
-                    var existing = existingMappings.find(function (m) { return sameGuid(m.LibraryId, library.ItemId); });
+                    const existing = existingMappings.find(function (m) { return sameGuid(m.LibraryId, library.ItemId); });
                     return buildLibraryBlockHtml(library, existing);
                 }).join('');
             }
@@ -227,8 +227,8 @@
             }
 
             function setUpMaxParallelJobsSlider(currentValue) {
-                var slider = byId('MaxParallelJobs');
-                var readout = byId('MaxParallelJobsValue');
+                const slider = byId('MaxParallelJobs');
+                const readout = byId('MaxParallelJobsValue');
                 slider.value = String(Math.min(Math.max(currentValue, 1), MAX_PARALLEL_JOBS_CEILING));
                 readout.textContent = slider.value;
                 slider.addEventListener('input', function () {
@@ -243,8 +243,8 @@
                         ApiClient.getPluginConfiguration(pluginId),
                         ApiClient.getVirtualFolders()
                     ]).then(function (results) {
-                        var config = results[0];
-                        var libraries = results[1];
+                        const config = results[0];
+                        const libraries = results[1];
 
                         byId('SidecarUrl').value = config.SidecarUrl || '';
                         byId('SubtitleExtensions').value = arrayToCsv(config.SubtitleExtensions);
@@ -256,7 +256,7 @@
                             typeof config.QueueWaitTimeoutSeconds === 'number' ? config.QueueWaitTimeoutSeconds : 3600;
                         byId('SidecarRequestTimeoutSeconds').value = config.SidecarRequestTimeoutSeconds || 30;
 
-                        var effectiveMappings = (config.LibraryPathMappings && config.LibraryPathMappings.length > 0)
+                        const effectiveMappings = (config.LibraryPathMappings && config.LibraryPathMappings.length > 0)
                             ? config.LibraryPathMappings
                             : migrateFromWatchedPathsMaps(config.WatchedPathsMaps, libraries);
                         renderLibraryList(libraries, effectiveMappings);

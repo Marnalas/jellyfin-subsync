@@ -41,15 +41,15 @@
 
     <script type="text/javascript">
         (function () {
-            var SEARCH_DEBOUNCE_MS = 300;
-            var SEARCH_LIMIT = 15;
-            var searchTimer = null;
+            const SEARCH_DEBOUNCE_MS = 300;
+            const SEARCH_LIMIT = 15;
+            let searchTimer = null;
 
             function byId(id) {
                 return document.querySelector('#' + id);
             }
 
-            var htmlEscapes = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+            const htmlEscapes = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
             function escapeHtml(text) {
                 return (text || '').replace(/[&<>"']/g, function (c) { return htmlEscapes[c]; });
             }
@@ -61,7 +61,7 @@
             }
 
             function buildResultRowHtml(item) {
-                var subtitle = itemSubtitle(item);
+                const subtitle = itemSubtitle(item);
                 return '' +
                     '<div class="inputContainer itemResultRow" data-item-id="' + escapeHtml(item.Id) + '" style="display:flex;align-items:center;justify-content:space-between;gap:1em;">' +
                         '<div>' +
@@ -77,7 +77,7 @@
             }
 
             function renderResults(items) {
-                var container = byId('ItemSearchResults');
+                const container = byId('ItemSearchResults');
                 if (items.length === 0) {
                     container.innerHTML = '<div class="fieldDescription">No matching items.</div>';
                     return;
@@ -102,9 +102,9 @@
             }
 
             function clearItem(row) {
-                var itemId = row.dataset.itemId;
-                var action = row.querySelector('.itemResultAction');
-                var button = row.querySelector('.clearItemButton');
+                const itemId = row.dataset.itemId;
+                const action = row.querySelector('.itemResultAction');
+                const button = row.querySelector('.clearItemButton');
                 button.disabled = true;
 
                 ApiClient.ajax({
@@ -125,8 +125,8 @@
                 if (!window.confirm('Clear the entire Subsync cache? Every synced subtitle will be checked again on the next sweep.'))
                     return;
 
-                var button = byId('ClearAllButton');
-                var status = byId('ClearAllStatus');
+                const button = byId('ClearAllButton');
+                const status = byId('ClearAllStatus');
                 button.disabled = true;
                 status.textContent = '';
 
@@ -155,13 +155,13 @@
             byId('ClearAllButton').addEventListener('click', clearAll);
 
             byId('ItemSearch').addEventListener('input', function () {
-                var term = this.value.trim();
+                const term = this.value.trim();
                 if (searchTimer) window.clearTimeout(searchTimer);
                 searchTimer = window.setTimeout(function () { searchItems(term); }, SEARCH_DEBOUNCE_MS);
             });
 
             byId('ItemSearchResults').addEventListener('click', function (e) {
-                var button = e.target.closest('.clearItemButton');
+                const button = e.target.closest('.clearItemButton');
                 if (!button) return;
                 clearItem(button.closest('.itemResultRow'));
             });
