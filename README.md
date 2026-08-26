@@ -43,6 +43,32 @@ made of two pieces:
 
 No GPU is required - the default `webrtc` VAD `ffsubsync` uses is CPU-only.
 
+## Features
+
+- Automatically re-syncs out-of-sync external subtitles against their video
+  on a schedule, using Jellyfin's own subtitle-to-video pairing (not
+  filename guessing) - so `.forced`, `.sdh`, `pt-BR`-style tags etc. all
+  work correctly.
+- Skip-cache tracks what's already synced (by content hash) so repeat
+  sweeps only do new work; stale entries for deleted files are pruned
+  automatically.
+- On-demand sync of a single movie or episode, without waiting for the
+  next scheduled sweep.
+- Cache management from the admin UI: clear the whole skip-cache, or just
+  one item (e.g. after manually replacing a subtitle).
+- Supports multiple subtitle formats (`.srt`, `.ass`, `.ssa`, `.vtt`,
+  `.sub` by default, configurable) and preserves the original format
+  rather than converting.
+- Per-library path mapping between Jellyfin's library paths and the
+  sidecar's view of the filesystem.
+- Configurable throughput and timing: max parallel jobs, job/queue-wait
+  timeouts, poll interval.
+- Integrates with Jellyfin's native scheduled-task system: manual "Run
+  Now", progress reporting, standard scheduling UI.
+- Sync work runs in a separate sidecar service, so the Jellyfin container
+  itself needs no Docker socket or extra privileges.
+- CPU-only - no GPU required.
+
 ## Quick start
 
 1. **Sidecar** - add the `jellyfin-subsync` service to the same
