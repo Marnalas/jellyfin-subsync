@@ -36,9 +36,18 @@ namespace Jellyfin.Subsync.Starter
             };
             yield return new PluginPageInfo
             {
+                Name = "SubsyncJs",
+                EmbeddedResourcePath = $"{GetType().Namespace}.Configuration.configPage.js"
+            };
+            yield return new PluginPageInfo
+            {
                 Name = "Cache",
-                EmbeddedResourcePath = $"{GetType().Namespace}.Configuration.configCachePage.html",
-                MenuIcon = "closed_caption"
+                EmbeddedResourcePath = $"{GetType().Namespace}.Configuration.configCachePage.html"
+            };
+            yield return new PluginPageInfo
+            {
+                Name = "CacheJs",
+                EmbeddedResourcePath = $"{GetType().Namespace}.Configuration.configCachePage.js"
             };
         }
 
