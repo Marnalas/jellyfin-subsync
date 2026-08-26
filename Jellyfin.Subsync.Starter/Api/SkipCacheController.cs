@@ -2,8 +2,6 @@ using System.Net.Mime;
 using Jellyfin.Subsync.Starter.Infrastructure;
 using MediaBrowser.Common.Api;
 using MediaBrowser.Controller.Library;
-using MediaBrowser.Controller.Persistence;
-using MediaBrowser.Model.Entities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
@@ -45,13 +43,7 @@ public class SkipCacheController(
         if (item is null)
             return NotFound();
 
-        var paths = mediaSourceManager
-            .GetMediaStreams(new MediaStreamQuery { ItemId = item.Id, Type = MediaStreamType.Subtitle })
-            .Where(stream =>
-                stream.IsExternal && stream.IsExternalUrl != true && !string.IsNullOrEmpty(stream.Path))
-            .Select(stream => stream.Path!)
-            .Distinct();
-
+        var paths = SubtitleMatcher.GetExternalSubtitlePaths(item, mediaSourceManager);
         var removed = skipCache.RemoveForPaths(paths);
         logger.LogInformation("Subsync cache: cleared {Count} skip-cache entr(ies) for {Item}", removed, item.Name);
         return Ok(new { removed });

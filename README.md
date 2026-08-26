@@ -73,7 +73,6 @@ smoke test are in [Installation](docs/INSTALLATION.md).
 
 ## Roadmap
 
-- Add a feature in config pages to sync a single video file
 - [open to suggestions]
 
 ## Thanks

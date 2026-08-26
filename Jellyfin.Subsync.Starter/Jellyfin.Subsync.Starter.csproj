@@ -35,6 +35,10 @@
     <EmbeddedResource Include="Configuration\configCachePage.html" />
     <None Remove="Configuration\configCachePage.js" />
     <EmbeddedResource Include="Configuration\configCachePage.js" />
+    <None Remove="Configuration\configSyncPage.html" />
+    <EmbeddedResource Include="Configuration\configSyncPage.html" />
+    <None Remove="Configuration\configSyncPage.js" />
+    <EmbeddedResource Include="Configuration\configSyncPage.js" />
   </ItemGroup>
 
 </Project>

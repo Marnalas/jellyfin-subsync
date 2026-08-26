@@ -49,6 +49,16 @@ public sealed class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             Name = "CacheJs",
             EmbeddedResourcePath = $"{GetType().Namespace}.Configuration.configCachePage.js"
         };
+        yield return new PluginPageInfo
+        {
+            Name = "Sync",
+            EmbeddedResourcePath = $"{GetType().Namespace}.Configuration.configSyncPage.html"
+        };
+        yield return new PluginPageInfo
+        {
+            Name = "SyncJs",
+            EmbeddedResourcePath = $"{GetType().Namespace}.Configuration.configSyncPage.js"
+        };
     }
 
     public override void UpdateConfiguration(BasePluginConfiguration configuration)

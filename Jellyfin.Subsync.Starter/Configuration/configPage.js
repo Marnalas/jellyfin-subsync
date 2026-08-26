@@ -83,12 +83,14 @@ function buildLibraryBlockHtml(library, existing) {
         '</div>';
 }
 
-// Shared between this page and the Cache page so both render the same tab
-// strip via LibraryMenu.setTabs - only the active index differs per page.
+// Shared between this page and the Cache/Sync pages so all three render the
+// same tab strip via LibraryMenu.setTabs - only the active index differs per
+// page.
 function getTabs() {
     return [
         {href: Dashboard.getPluginUrl('Subsync'), name: 'Settings'},
-        {href: Dashboard.getPluginUrl('Cache'), name: 'Cache'}
+        {href: Dashboard.getPluginUrl('Cache'), name: 'Cache'},
+        {href: Dashboard.getPluginUrl('Sync'), name: 'Sync'}
     ];
 }
 

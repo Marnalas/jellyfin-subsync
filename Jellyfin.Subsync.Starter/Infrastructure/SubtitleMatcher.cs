@@ -1,4 +1,8 @@
 using Jellyfin.Subsync.Starter.Configuration;
+using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.Persistence;
+using MediaBrowser.Model.Entities;
 
 namespace Jellyfin.Subsync.Starter.Infrastructure;
 
@@ -6,6 +10,22 @@ internal static class SubtitleMatcher
 {
     private const string SyncedTempSuffix = "_synced_temp";
     private const string OriginalBackupSuffix = "_original_backup";
+
+    /// <summary>
+    /// Every external subtitle path Jellyfin currently associates with this
+    /// item - not filtered through the plugin's configured
+    /// SubtitleExtensions, so a later config change can't leave stale
+    /// skip-cache entries this can no longer reach. Shared by every caller
+    /// that needs to find or clear an item's cached subtitles, so the set
+    /// they all agree on can't drift apart.
+    /// </summary>
+    internal static IEnumerable<string>
+        GetExternalSubtitlePaths(BaseItem item, IMediaSourceManager mediaSourceManager) =>
+        mediaSourceManager
+            .GetMediaStreams(new MediaStreamQuery { ItemId = item.Id, Type = MediaStreamType.Subtitle })
+            .Where(stream => stream.IsExternal && stream.IsExternalUrl != true && !string.IsNullOrEmpty(stream.Path))
+            .Select(stream => stream.Path!)
+            .Distinct();
 
     /// <summary>
     /// True if <paramref name="path"/>'s extension is a configured
@@ -48,11 +68,10 @@ internal static class SubtitleMatcher
             var isMatch = dir.Equals(jellyfinRoot, StringComparison.Ordinal)
                           || dir.StartsWith(jellyfinRoot + "/", StringComparison.Ordinal);
 
-            if (isMatch && (bestJellyfinRoot is null || jellyfinRoot.Length > bestJellyfinRoot.Length))
-            {
-                bestJellyfinRoot = jellyfinRoot;
-                bestSidecarRoot = entry.SidecarPath.TrimEnd('/');
-            }
+            if (!isMatch || (bestJellyfinRoot is not null && jellyfinRoot.Length <= bestJellyfinRoot.Length))
+                continue;
+            bestJellyfinRoot = jellyfinRoot;
+            bestSidecarRoot = entry.SidecarPath.TrimEnd('/');
         }
 
         if (bestJellyfinRoot is null)

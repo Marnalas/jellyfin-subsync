@@ -1,0 +1,33 @@
+<div id="SubsyncSyncPage" data-role="page" data-title="Subsync"
+     class="page type-interior withTabs pluginConfigurationPage SubsyncSyncPage"
+     data-require="emby-input,emby-button,mainTabsManager"
+     data-controller="__plugin/SyncJs">
+    <div data-role="content">
+        <div class="content-primary">
+            <div style="max-width:60em;margin:auto;">
+                <div class="verticalSection">
+                    <h2>Sync a single item</h2>
+                    <p>
+                        Find a movie or episode and sync its subtitles now, without waiting for the next scheduled
+                        sweep. This clears anything already cached for the item first, so a subtitle the sweep
+                        considers already synced is re-attempted anyway.
+                    </p>
+                    <p style="font-weight:bold;border-left:3px solid currentColor;padding-left:0.75em;">
+                        Don't sync an item here while a library sweep is running.
+                    </p>
+                </div>
+
+                <div class="verticalSection">
+                    <div class="inputContainer">
+                        <input is="emby-input" type="text" id="ItemSearch" label="Search for a movie or episode" />
+                        <div class="fieldDescription">
+                            Only subtitles Jellyfin has already indexed for this item are considered - run a
+                            library scan first if you've just added one.
+                        </div>
+                        <div id="ItemSearchResults"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>

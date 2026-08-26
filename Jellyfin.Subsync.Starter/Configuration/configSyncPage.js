@@ -40,16 +40,17 @@ function buildResultRowHtml(item) {
         '<div class="itemResultName">' + escapeHtml(item.Name) + '</div>' +
         (subtitle ? '<div class="fieldDescription itemResultSubtitle">' + escapeHtml(subtitle) + '</div>' : '') +
         (item.Path ? '<div class="fieldDescription itemResultPath" style="word-break:break-all;">' + escapeHtml(item.Path) + '</div>' : '') +
+        '<div class="fieldDescription itemResultSyncStatus"></div>' +
         '</div>' +
         '<div class="itemResultAction">' +
-        '<button is="emby-button" type="button" class="raised clearItemButton">' +
-        '<span>Clear</span>' +
+        '<button is="emby-button" type="button" class="raised syncItemButton">' +
+        '<span>Sync</span>' +
         '</button>' +
         '</div>' +
         '</div>';
 }
 
-// Shared between this page and the Settings/Sync pages so all three render
+// Shared between this page and the Settings/Cache pages so all three render
 // the same tab strip via LibraryMenu.setTabs - only the active index differs
 // per page.
 function getTabs() {
@@ -58,6 +59,15 @@ function getTabs() {
         {href: Dashboard.getPluginUrl('Cache'), name: 'Cache'},
         {href: Dashboard.getPluginUrl('Sync'), name: 'Sync'}
     ];
+}
+
+function renderSyncSummary(result) {
+    if (!result.results || result.results.length === 0)
+        return 'Nothing to sync (' + result.reason + ').';
+    const synced = result.results.filter(function (r) {
+        return r.outcome === 'Synced';
+    }).length;
+    return synced + ' of ' + result.results.length + ' subtitle(s) synced.';
 }
 
 export default function (view) {
@@ -93,59 +103,34 @@ export default function (view) {
         });
     }
 
-    function clearItem(row) {
+    function syncItem(row) {
         const itemId = row.dataset.itemId;
-        const action = row.querySelector('.itemResultAction');
-        const button = row.querySelector('.clearItemButton');
+        const status = row.querySelector('.itemResultSyncStatus');
+        const button = row.querySelector('.syncItemButton');
         button.disabled = true;
+        status.textContent = 'Syncing…';
 
         ApiClient.ajax({
-            type: 'DELETE',
-            url: ApiClient.getUrl('Subsync/SkipCache/Items/' + itemId),
-            dataType: 'json'
-        }).then(function (result) {
-            action.textContent = result.removed > 0
-                ? 'Cleared ' + result.removed
-                : 'Nothing cached for this item';
-        }).catch(function () {
-            button.disabled = false;
-            action.textContent = 'Failed to clear - try again';
-        });
-    }
-
-    function clearAll() {
-        if (!window.confirm('Clear the entire Subsync cache? Every synced subtitle will be checked again on the next sweep.'))
-            return;
-
-        const button = byId('ClearAllButton');
-        const status = byId('ClearAllStatus');
-        button.disabled = true;
-        status.textContent = '';
-
-        ApiClient.ajax({
-            type: 'DELETE',
-            url: ApiClient.getUrl('Subsync/SkipCache'),
+            type: 'POST',
+            url: ApiClient.getUrl('Subsync/Sync/Items/' + itemId),
             dataType: 'json'
         }).then(function (result) {
             button.disabled = false;
-            status.textContent = result.removed > 0
-                ? 'Cleared ' + result.removed + ' cached result(s).'
-                : 'Cache was already empty.';
-        }).catch(function () {
+            status.textContent = renderSyncSummary(result);
+        }).catch(function (err) {
             button.disabled = false;
-            status.textContent = 'Failed to clear the cache - try again.';
+            status.textContent = err && err.status === 409
+                ? 'A library sweep is currently running - try again once it finishes.'
+                : 'Failed to sync - try again';
         });
     }
 
     view.addEventListener('viewshow', function () {
-        LibraryMenu.setTabs('subsync', 1, getTabs);
+        LibraryMenu.setTabs('subsync', 2, getTabs);
 
         byId('ItemSearch').value = '';
         byId('ItemSearchResults').innerHTML = '';
-        byId('ClearAllStatus').textContent = '';
     });
-
-    byId('ClearAllButton').addEventListener('click', clearAll);
 
     byId('ItemSearch').addEventListener('input', function () {
         const term = this.value.trim();
@@ -156,8 +141,8 @@ export default function (view) {
     });
 
     byId('ItemSearchResults').addEventListener('click', function (e) {
-        const button = e.target.closest('.clearItemButton');
+        const button = e.target.closest('.syncItemButton');
         if (!button) return;
-        clearItem(button.closest('.itemResultRow'));
+        syncItem(button.closest('.itemResultRow'));
     });
 }
