@@ -20,20 +20,18 @@
                 </div>
 
                 <div class="inputContainer">
-                    <label class="inputLabel inputLabelUnfocused" for="WatchedPathsMaps">Path mappings</label>
-                    <textarea is="emby-textarea" id="WatchedPathsMaps" rows="8" style="width:100%;"></textarea>
+                    <label class="inputLabel inputLabelUnfocused">Path mappings</label>
+                    <div id="LibraryList"></div>
                     <div class="fieldDescription">
-                        One library per line, in the form <code>jellyfin-path : sidecar-path</code>,
-                        e.g. <code>/path/to/jellyfin/library : /path/in/sidecar/container</code>. The left side is the
-                        path as seen INSIDE the Jellyfin container (must match your compose volume mounts);
-                        the right side is the equivalent path as seen by the subsync-sidecar container.
-                        Each line is independent - there's no shared root requirement between libraries,
-                        so they can be mounted under completely different layouts on each side.
+                        Pick which of your Jellyfin libraries the sweep syncs subtitles for, and tell it where
+                        each library's folders live from the subsync-sidecar container's point of view. The
+                        Jellyfin-side paths below come straight from each library's own configuration - you
+                        only need to fill in the sidecar-side equivalent. Libraries are disabled by default.
                         <br /><br />
                         This is path translation only - it does not choose what gets swept, your Jellyfin
-                        libraries do. But every library path still needs a matching line here: a subtitle
-                        whose path matches no entry is skipped with a warning, because the sidecar would
-                        have no way to reach it.
+                        libraries do. But every enabled library's folders still need a sidecar path filled in
+                        here: a subtitle whose path matches no mapping is skipped with a warning, because the
+                        sidecar would have no way to reach it.
                     </div>
                 </div>
 
@@ -79,7 +77,10 @@
                 </div>
 
                 <div class="inputContainer">
-                    <input is="emby-input" type="number" id="MaxParallelJobs" label="Max parallel jobs" min="1" />
+                    <label class="inputLabel inputLabelUnfocused" for="MaxParallelJobs">
+                        Max parallel jobs: <span id="MaxParallelJobsValue">1</span>
+                    </label>
+                    <input type="range" id="MaxParallelJobs" min="1" max="32" step="1" style="width:100%;" />
                     <div class="fieldDescription">
                         How many subtitle files the sweep submits to the sidecar at once. Default is 1.
                         <strong>Raising this only helps if the subsync-sidecar container's own
@@ -112,35 +113,10 @@
     <script type="text/javascript">
         (function () {
             var pluginId = '6e9cb927-95fc-4ab9-8267-c896060ae50e';
+            var MAX_PARALLEL_JOBS_CEILING = 32; // fixed, reasonable upper bound
 
             function byId(id) {
                 return document.querySelector('#' + id);
-            }
-
-            function mapToLines(entries) {
-                return (entries || []).map(function (entry) {
-                    return entry.JellyfinPath + ' : ' + entry.SidecarPath;
-                }).join('\n');
-            }
-
-            function linesToMap(text) {
-                var entries = [];
-                text.split('\n').forEach(function (line) {
-                    var trimmed = line.trim();
-                    if (!trimmed) {
-                        return;
-                    }
-                    var idx = trimmed.indexOf(':');
-                    if (idx === -1) {
-                        return;
-                    }
-                    var jellyfinPath = trimmed.slice(0, idx).trim();
-                    var sidecarPath = trimmed.slice(idx + 1).trim();
-                    if (jellyfinPath && sidecarPath) {
-                        entries.push({ JellyfinPath: jellyfinPath, SidecarPath: sidecarPath });
-                    }
-                });
-                return entries;
             }
 
             function arrayToCsv(arr) {
@@ -162,12 +138,115 @@
                 return parsed;
             }
 
+            function stripTrailingSlash(path) {
+                return (path || '').replace(/\/+$/, '');
+            }
+
+            function sameGuid(a, b) {
+                return (a || '').toLowerCase() === (b || '').toLowerCase();
+            }
+
+            var htmlEscapes = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+            function escapeHtml(text) {
+                return (text || '').replace(/[&<>"']/g, function (c) { return htmlEscapes[c]; });
+            }
+
+            // Only used when config.LibraryPathMappings is empty (i.e. this
+            // install hasn't been through the new UI yet), to pre-fill the
+            // form from the old free-text WatchedPathsMaps. Purely in-memory
+            // - nothing is persisted until Save. Matches on exact path
+            // equality (trailing-slash-insensitive) only: looser prefix
+            // matching risks picking the wrong SidecarPath when a library
+            // has multiple locations under one old parent entry.
+            function migrateFromWatchedPathsMaps(oldEntries, libraries) {
+                return libraries.map(function (library) {
+                    var pathMappings = [];
+                    var anyMatch = false;
+                    (library.Locations || []).forEach(function (location) {
+                        var oldEntry = (oldEntries || []).find(function (e) {
+                            return stripTrailingSlash(e.JellyfinPath) === stripTrailingSlash(location);
+                        });
+                        if (oldEntry) {
+                            anyMatch = true;
+                        }
+                        pathMappings.push({ JellyfinPath: location, SidecarPath: oldEntry ? oldEntry.SidecarPath : '' });
+                    });
+                    return {
+                        LibraryId: library.ItemId,
+                        LibraryName: library.Name,
+                        Enabled: anyMatch,
+                        PathMappings: pathMappings
+                    };
+                });
+            }
+
+            function buildLibraryBlockHtml(library, existing) {
+                var checked = existing && existing.Enabled ? ' checked' : '';
+                var rows = (library.Locations || []).map(function (location) {
+                    var priorEntry = existing && existing.PathMappings.find(function (e) { return e.JellyfinPath === location; });
+                    var value = priorEntry ? priorEntry.SidecarPath : '';
+                    return '' +
+                        '<div class="inputContainer locationRow" data-jellyfin-path="' + escapeHtml(location) + '">' +
+                            '<label class="inputLabel inputLabelUnfocused">' + escapeHtml(location) + '</label>' +
+                            '<input is="emby-input" type="text" class="sidecarPathInput" value="' + escapeHtml(value) + '" ' +
+                                'placeholder="Sidecar-side equivalent, e.g. /mnt/media/Movies" />' +
+                        '</div>';
+                }).join('');
+
+                return '' +
+                    '<div class="verticalSection libraryMapping" data-library-id="' + escapeHtml(library.ItemId) + '">' +
+                        '<label>' +
+                            '<input is="emby-checkbox" type="checkbox" class="libraryEnabled"' + checked + ' />' +
+                            '<span class="libraryNameText">' + escapeHtml(library.Name) + '</span>' +
+                        '</label>' +
+                        '<div class="libraryLocations" style="margin-left:2em;">' + rows + '</div>' +
+                    '</div>';
+            }
+
+            function renderLibraryList(libraries, existingMappings) {
+                byId('LibraryList').innerHTML = libraries.map(function (library) {
+                    var existing = existingMappings.find(function (m) { return sameGuid(m.LibraryId, library.ItemId); });
+                    return buildLibraryBlockHtml(library, existing);
+                }).join('');
+            }
+
+            function collectLibraryPathMappings() {
+                return Array.prototype.map.call(byId('LibraryList').querySelectorAll('.libraryMapping'), function (block) {
+                    return {
+                        LibraryId: block.dataset.libraryId,
+                        LibraryName: block.querySelector('.libraryNameText').textContent,
+                        Enabled: block.querySelector('.libraryEnabled').checked,
+                        PathMappings: Array.prototype.map.call(block.querySelectorAll('.locationRow'), function (row) {
+                            return {
+                                JellyfinPath: row.dataset.jellyfinPath,
+                                SidecarPath: row.querySelector('.sidecarPathInput').value.trim()
+                            };
+                        })
+                    };
+                });
+            }
+
+            function setUpMaxParallelJobsSlider(currentValue) {
+                var slider = byId('MaxParallelJobs');
+                var readout = byId('MaxParallelJobsValue');
+                slider.value = String(Math.min(Math.max(currentValue, 1), MAX_PARALLEL_JOBS_CEILING));
+                readout.textContent = slider.value;
+                slider.addEventListener('input', function () {
+                    readout.textContent = slider.value;
+                });
+            }
+
             byId('SubsyncConfigPage')
                 .addEventListener('pageshow', function () {
                     Dashboard.showLoadingMsg();
-                    ApiClient.getPluginConfiguration(pluginId).then(function (config) {
+                    Promise.all([
+                        ApiClient.getPluginConfiguration(pluginId),
+                        ApiClient.getVirtualFolders()
+                    ]).then(function (results) {
+                        var config = results[0];
+                        var libraries = results[1];
+
                         byId('SidecarUrl').value = config.SidecarUrl || '';
-                        byId('WatchedPathsMaps').value = mapToLines(config.WatchedPathsMaps);
                         byId('SubtitleExtensions').value = arrayToCsv(config.SubtitleExtensions);
                         byId('PollIntervalMilliseconds').value = config.PollIntervalMilliseconds || 3000;
                         byId('JobTimeoutSeconds').value = config.JobTimeoutSeconds || 1800;
@@ -176,7 +255,14 @@
                         byId('QueueWaitTimeoutSeconds').value =
                             typeof config.QueueWaitTimeoutSeconds === 'number' ? config.QueueWaitTimeoutSeconds : 3600;
                         byId('SidecarRequestTimeoutSeconds').value = config.SidecarRequestTimeoutSeconds || 30;
-                        byId('MaxParallelJobs').value = config.MaxParallelJobs || 1;
+
+                        var effectiveMappings = (config.LibraryPathMappings && config.LibraryPathMappings.length > 0)
+                            ? config.LibraryPathMappings
+                            : migrateFromWatchedPathsMaps(config.WatchedPathsMaps, libraries);
+                        renderLibraryList(libraries, effectiveMappings);
+
+                        setUpMaxParallelJobsSlider(config.MaxParallelJobs || 1);
+
                         Dashboard.hideLoadingMsg();
                     });
                 });
@@ -187,7 +273,9 @@
                     Dashboard.showLoadingMsg();
                     ApiClient.getPluginConfiguration(pluginId).then(function (config) {
                         config.SidecarUrl = byId('SidecarUrl').value.trim();
-                        config.WatchedPathsMaps = linesToMap(byId('WatchedPathsMaps').value);
+                        config.LibraryPathMappings = collectLibraryPathMappings();
+                        // WatchedPathsMaps is intentionally left untouched here -
+                        // the server derives it from LibraryPathMappings on save.
                         config.SubtitleExtensions = csvToArray(byId('SubtitleExtensions').value);
                         config.PollIntervalMilliseconds = getIntValue('PollIntervalMilliseconds', 3000, 1);
                         config.JobTimeoutSeconds = getIntValue('JobTimeoutSeconds', 1800, 1);
@@ -195,7 +283,7 @@
                         // indefinitely") must not be replaced with the fallback.
                         config.QueueWaitTimeoutSeconds = getIntValue('QueueWaitTimeoutSeconds', 3600, 0);
                         config.SidecarRequestTimeoutSeconds = getIntValue('SidecarRequestTimeoutSeconds', 30, 1);
-                        config.MaxParallelJobs = getIntValue('MaxParallelJobs', 1, 1);
+                        config.MaxParallelJobs = parseInt(byId('MaxParallelJobs').value, 10) || 1;
 
                         ApiClient.updatePluginConfiguration(pluginId, config).then(function (result) {
                             Dashboard.processPluginConfigurationUpdateResult(result);

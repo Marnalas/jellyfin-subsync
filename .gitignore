@@ -66,6 +66,7 @@ venv/
 # JetBrains Rider
 .idea/
 *.sln.iml
+*.sln.DotSettings.user
 
 # AI agents / assistants (Claude Code, Cursor, Windsurf, Aider, etc.)
 .claude/

@@ -153,13 +153,16 @@ Then in Jellyfin, go to Dashboard > Plugins > Subsync and set:
 
 - **Sidecar URL** - e.g. `http://jellyfin-subsync:8000` (the compose service
   name, so it resolves on the internal Docker network).
-- **Path mappings** - one library per line, as `jellyfin-path : sidecar-path`
-  (e.g. `/path/to/jellyfin/library : /path/in/sidecar/container`). The left
-  side is the path as seen inside the Jellyfin container; the right side is
-  the same library as seen inside the sidecar container. Each line is
-  independent - libraries don't need to share a common root on either side.
-  This is translation only - it doesn't choose what gets swept - but every
-  library path needs a line here, or its subtitles are skipped with a warning.
+- **Path mappings** - the config page lists your actual Jellyfin libraries
+  (fetched live from the server). Each one is **disabled by default**; toggle
+  on the ones you want swept, then fill in the sidecar-side path for each of
+  that library's folders (shown read-only, pulled straight from the library
+  itself - you never type the Jellyfin-side path). This is translation
+  only - it doesn't choose what gets swept - but every enabled library's
+  folders need a sidecar path filled in, or its subtitles are skipped with a
+  warning. Upgrading from an older version that used the old free-text path
+  mapping field pre-fills this list automatically from your existing
+  mappings; nothing changes until you save.
 - Subtitle extensions and poll interval, if you want anything other than the
   defaults.
 - **Job timeout** (default 1800s) and **Queue wait timeout** (default 3600s) -
@@ -178,9 +181,12 @@ the URL doesn't resolve/isn't reachable, or a path pair doesn't point at the
 same files on both sides, the sweep task just completes having found nothing
 to do, silently. For
 reference, this is the config that comes out of the fields above when
-matching the compose example in step 1, where every library is
-mounted at the same in-container path on both sides, so each map entry is
-an identity map:
+matching the compose example in step 1, where every library is mounted at
+the same in-container path on both sides (so each mapping is an identity
+map) and all three libraries have been toggled on (they start disabled).
+`LibraryPathMappings` is what the config page actually saves from your
+edits; `WatchedPathsMaps` is derived from it automatically on save (only
+enabled libraries contribute) and is what the sweep task reads:
 
 ```xml
 <?xml version="1.0" encoding="utf-8"?>
@@ -200,6 +206,41 @@ an identity map:
       <SidecarPath>/media/library3</SidecarPath>
     </PathMapEntry>
   </WatchedPathsMaps>
+  <LibraryPathMappings>
+    <LibraryPathMapping>
+      <LibraryId>8f14e45f-ceea-4d3a-b1e4-000000000001</LibraryId>
+      <LibraryName>library1</LibraryName>
+      <Enabled>true</Enabled>
+      <PathMappings>
+        <PathMapEntry>
+          <JellyfinPath>/media/library1</JellyfinPath>
+          <SidecarPath>/media/library1</SidecarPath>
+        </PathMapEntry>
+      </PathMappings>
+    </LibraryPathMapping>
+    <LibraryPathMapping>
+      <LibraryId>8f14e45f-ceea-4d3a-b1e4-000000000002</LibraryId>
+      <LibraryName>library2</LibraryName>
+      <Enabled>true</Enabled>
+      <PathMappings>
+        <PathMapEntry>
+          <JellyfinPath>/media/library2</JellyfinPath>
+          <SidecarPath>/media/library2</SidecarPath>
+        </PathMapEntry>
+      </PathMappings>
+    </LibraryPathMapping>
+    <LibraryPathMapping>
+      <LibraryId>8f14e45f-ceea-4d3a-b1e4-000000000003</LibraryId>
+      <LibraryName>library3</LibraryName>
+      <Enabled>true</Enabled>
+      <PathMappings>
+        <PathMapEntry>
+          <JellyfinPath>/media/library3</JellyfinPath>
+          <SidecarPath>/media/library3</SidecarPath>
+        </PathMapEntry>
+      </PathMappings>
+    </LibraryPathMapping>
+  </LibraryPathMappings>
   <SubtitleExtensions>
     <string>srt</string>
     <string>ass</string>

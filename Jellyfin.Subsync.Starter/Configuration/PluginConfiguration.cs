@@ -27,6 +27,14 @@ namespace Jellyfin.Subsync.Starter.Configuration
         /// </remarks>
         public List<PathMapEntry> WatchedPathsMaps { get; set; } = [];
 
+        /// <summary>
+        /// Admin-facing, per-library source of truth for path mapping, edited
+        /// from the config page's library list UI. WatchedPathsMaps above is
+        /// derived from this (enabled libraries only) whenever the plugin
+        /// configuration is saved - see Plugin.UpdateConfiguration.
+        /// </summary>
+        public List<LibraryPathMapping> LibraryPathMappings { get; set; } = [];
+
         /// <summary>Subtitle file extensions to sync. Narrows the set Jellyfin already recognises.</summary>
         public List<string> SubtitleExtensions { get; set; } = [];
 

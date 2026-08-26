@@ -35,6 +35,13 @@ namespace Jellyfin.Subsync.Starter
                 EnableInMainMenu = true
             };
         }
+
+        public override void UpdateConfiguration(BasePluginConfiguration configuration)
+        {
+            if (configuration is PluginConfiguration pluginConfiguration)
+                pluginConfiguration.DeriveWatchedPathsMaps();
+
+            base.UpdateConfiguration(configuration);
+        }
     }
 }
-
