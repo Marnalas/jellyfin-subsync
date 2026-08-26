@@ -113,6 +113,10 @@
         (function () {
             var pluginId = '6e9cb927-95fc-4ab9-8267-c896060ae50e';
 
+            function byId(id) {
+                return document.querySelector('#' + id);
+            }
+
             function mapToLines(entries) {
                 return (entries || []).map(function (entry) {
                     return entry.JellyfinPath + ' : ' + entry.SidecarPath;
@@ -131,7 +135,7 @@
                         return;
                     }
                     var jellyfinPath = trimmed.slice(0, idx).trim();
-                    var sidecarPath = trimmed.slice(idx + 2).trim();
+                    var sidecarPath = trimmed.slice(idx + 1).trim();
                     if (jellyfinPath && sidecarPath) {
                         entries.push({ JellyfinPath: jellyfinPath, SidecarPath: sidecarPath });
                     }
@@ -147,41 +151,51 @@
                 return text.split(',').map(function (s) { return s.trim(); }).filter(Boolean);
             }
 
-            document.querySelector('#SubsyncConfigPage')
+            // Falls back to `fallback` when the field is blank/non-numeric or
+            // below `min`. A plain `|| fallback` would treat a deliberate 0 as
+            // blank, which matters for fields where 0 is a legitimate value.
+            function getIntValue(id, fallback, min) {
+                var parsed = parseInt(byId(id).value, 10);
+                if (isNaN(parsed) || (typeof min === 'number' && parsed < min)) {
+                    return fallback;
+                }
+                return parsed;
+            }
+
+            byId('SubsyncConfigPage')
                 .addEventListener('pageshow', function () {
                     Dashboard.showLoadingMsg();
                     ApiClient.getPluginConfiguration(pluginId).then(function (config) {
-                        document.querySelector('#SidecarUrl').value = config.SidecarUrl || '';
-                        document.querySelector('#WatchedPathsMaps').value = mapToLines(config.WatchedPathsMaps);
-                        document.querySelector('#SubtitleExtensions').value = arrayToCsv(config.SubtitleExtensions);
-                        document.querySelector('#PollIntervalMilliseconds').value = config.PollIntervalMilliseconds || 3000;
-                        document.querySelector('#JobTimeoutSeconds').value = config.JobTimeoutSeconds || 1800;
+                        byId('SidecarUrl').value = config.SidecarUrl || '';
+                        byId('WatchedPathsMaps').value = mapToLines(config.WatchedPathsMaps);
+                        byId('SubtitleExtensions').value = arrayToCsv(config.SubtitleExtensions);
+                        byId('PollIntervalMilliseconds').value = config.PollIntervalMilliseconds || 3000;
+                        byId('JobTimeoutSeconds').value = config.JobTimeoutSeconds || 1800;
                         // Not `|| 3600`: 0 is a legitimate value here (wait
                         // indefinitely) and would otherwise be shown as an hour.
-                        document.querySelector('#QueueWaitTimeoutSeconds').value =
+                        byId('QueueWaitTimeoutSeconds').value =
                             typeof config.QueueWaitTimeoutSeconds === 'number' ? config.QueueWaitTimeoutSeconds : 3600;
-                        document.querySelector('#SidecarRequestTimeoutSeconds').value = config.SidecarRequestTimeoutSeconds || 30;
-                        document.querySelector('#MaxParallelJobs').value = config.MaxParallelJobs || 1;
+                        byId('SidecarRequestTimeoutSeconds').value = config.SidecarRequestTimeoutSeconds || 30;
+                        byId('MaxParallelJobs').value = config.MaxParallelJobs || 1;
                         Dashboard.hideLoadingMsg();
                     });
                 });
 
-            document.querySelector('#SubsyncConfigForm')
+            byId('SubsyncConfigForm')
                 .addEventListener('submit', function (e) {
                     e.preventDefault();
                     Dashboard.showLoadingMsg();
                     ApiClient.getPluginConfiguration(pluginId).then(function (config) {
-                        config.SidecarUrl = document.querySelector('#SidecarUrl').value.trim();
-                        config.WatchedPathsMaps = linesToMap(document.querySelector('#WatchedPathsMaps').value);
-                        config.SubtitleExtensions = csvToArray(document.querySelector('#SubtitleExtensions').value);
-                        config.PollIntervalMilliseconds = parseInt(document.querySelector('#PollIntervalMilliseconds').value, 10) || 3000;
-                        config.JobTimeoutSeconds = parseInt(document.querySelector('#JobTimeoutSeconds').value, 10) || 1800;
-                        // Same reason as on load: `|| 3600` would quietly turn a
-                        // deliberate 0 ("wait indefinitely") back into an hour.
-                        var queueWait = parseInt(document.querySelector('#QueueWaitTimeoutSeconds').value, 10);
-                        config.QueueWaitTimeoutSeconds = isNaN(queueWait) || queueWait < 0 ? 3600 : queueWait;
-                        config.SidecarRequestTimeoutSeconds = parseInt(document.querySelector('#SidecarRequestTimeoutSeconds').value, 10) || 30;
-                        config.MaxParallelJobs = Math.max(1, parseInt(document.querySelector('#MaxParallelJobs').value, 10) || 1);
+                        config.SidecarUrl = byId('SidecarUrl').value.trim();
+                        config.WatchedPathsMaps = linesToMap(byId('WatchedPathsMaps').value);
+                        config.SubtitleExtensions = csvToArray(byId('SubtitleExtensions').value);
+                        config.PollIntervalMilliseconds = getIntValue('PollIntervalMilliseconds', 3000, 1);
+                        config.JobTimeoutSeconds = getIntValue('JobTimeoutSeconds', 1800, 1);
+                        // Same reason as on load: a deliberate 0 ("wait
+                        // indefinitely") must not be replaced with the fallback.
+                        config.QueueWaitTimeoutSeconds = getIntValue('QueueWaitTimeoutSeconds', 3600, 0);
+                        config.SidecarRequestTimeoutSeconds = getIntValue('SidecarRequestTimeoutSeconds', 30, 1);
+                        config.MaxParallelJobs = getIntValue('MaxParallelJobs', 1, 1);
 
                         ApiClient.updatePluginConfiguration(pluginId, config).then(function (result) {
                             Dashboard.processPluginConfigurationUpdateResult(result);
