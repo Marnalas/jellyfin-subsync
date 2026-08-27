@@ -169,4 +169,3 @@ public class ToSidecarAbsoluteTests
         Assert.Equal(("/Sub", "Movie.en.srt"), result);
     }
 }
-

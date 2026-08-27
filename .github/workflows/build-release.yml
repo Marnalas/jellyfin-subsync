@@ -2,12 +2,11 @@ name: Build and Release
 
 on:
   push:
-    branches: [main, '10.11']
+    branches: [main, '10.11', 'feature/**', 'hotfix/**']
     paths:
       - '**/*.cs'
       - '**/*.csproj'
       - '**/*.sln'
-      - '**/*.html'
       - 'Directory.Build.props'
       - 'subsync-sidecar/**'
       - '.github/workflows/build-release.yml'
@@ -20,7 +19,6 @@ on:
       - '**/*.cs'
       - '**/*.csproj'
       - '**/*.sln'
-      - '**/*.html'
       - 'Directory.Build.props'
       - 'subsync-sidecar/**'
       - '.github/workflows/build-release.yml'
@@ -42,19 +40,41 @@ jobs:
   # (dotnet 10 / net10.0). `github.ref_name` is the branch on push/dispatch,
   # but on pull_request it's the synthetic merge ref, so the PR's target
   # branch (`base_ref`) is used instead.
+  # `feature/*` and `hotfix/*` branches build against whichever channel they
+  # declare in their name (feature/10.11/x, feature/main/x, ...) and are
+  # flagged as `is_test` so downstream jobs route them to the testing
+  # manifest/tags instead of production.
   channel:
     runs-on: ubuntu-latest
     outputs:
       dotnet_version: ${{ steps.detect.outputs.dotnet_version }}
       tfm: ${{ steps.detect.outputs.tfm }}
       target_abi: ${{ steps.detect.outputs.target_abi }}
+      is_test: ${{ steps.detect.outputs.is_test }}
     steps:
       - name: Detect channel
         id: detect
         env:
           BRANCH: ${{ github.event_name == 'pull_request' && github.base_ref || github.ref_name }}
         run: |
+          IS_TEST=false
           if [ "$BRANCH" = "10.11" ]; then
+            TARGET_CHANNEL=10.11
+          elif [[ "$BRANCH" =~ ^(feature|hotfix)/10\.11(/|$) ]]; then
+            TARGET_CHANNEL=10.11
+            IS_TEST=true
+          elif [[ "$BRANCH" =~ ^(feature|hotfix)/main(/|$) ]]; then
+            TARGET_CHANNEL=main
+            IS_TEST=true
+          elif [[ "$BRANCH" =~ ^(feature|hotfix)/ ]]; then
+            echo "::warning::Branch '$BRANCH' doesn't declare a target channel (expected feature|hotfix/10.11/... or feature|hotfix/main/...) — defaulting to main"
+            TARGET_CHANNEL=main
+            IS_TEST=true
+          else
+            TARGET_CHANNEL=main
+          fi
+
+          if [ "$TARGET_CHANNEL" = "10.11" ]; then
             echo "dotnet_version=9.0.x" >> $GITHUB_OUTPUT
             echo "tfm=net9.0" >> $GITHUB_OUTPUT
             echo "target_abi=10.11.0.0" >> $GITHUB_OUTPUT
@@ -63,6 +83,7 @@ jobs:
             echo "tfm=net10.0" >> $GITHUB_OUTPUT
             echo "target_abi=12.0.0.0" >> $GITHUB_OUTPUT
           fi
+          echo "is_test=$IS_TEST" >> $GITHUB_OUTPUT
 
   # ── Plugin unit tests ───────────────────────────────────────────────
   # Deliberately unguarded, so tests also run on pushes that don't bump
@@ -109,22 +130,40 @@ jobs:
         run: pytest
 
   # ── Check if release already exists ─────────────────────────────────
+  # The manifest version always matches <Version> verbatim - on test channels
+  # (feature/*, hotfix/*) just as on main/10.11, it's the pusher's job to bump
+  # it before a push that should produce a new release. Test and production
+  # tags live in separate namespaces (test-v* vs v*), so the two channels'
+  # tag-existence checks (and therefore "already released?" state) never
+  # collide even when both happen to hold the same <Version> at once.
   check-version:
+    needs: [channel]
     runs-on: ubuntu-latest
     outputs:
       should_release: ${{ steps.check.outputs.should_release }}
       version: ${{ steps.check.outputs.version }}
+      tag: ${{ steps.check.outputs.tag }}
     steps:
       - uses: actions/checkout@v7
 
       - name: Get version and check tag
         id: check
+        env:
+          IS_TEST: ${{ needs.channel.outputs.is_test }}
         run: |
           VERSION=$(grep -oP '(?<=<Version>)[^<]+' Directory.Build.props)
           echo "version=$VERSION" >> $GITHUB_OUTPUT
-          if git ls-remote --tags origin "refs/tags/v${VERSION}" | grep -q .; then
+
+          if [ "$IS_TEST" = "true" ]; then
+            TAG="test-v${VERSION}"
+          else
+            TAG="v${VERSION}"
+          fi
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+
+          if git ls-remote --tags origin "refs/tags/${TAG}" | grep -q .; then
             echo "should_release=false" >> $GITHUB_OUTPUT
-            echo "::notice::Tag v${VERSION} already exists — skipping release"
+            echo "::notice::Tag ${TAG} already exists — skipping release"
           else
             echo "should_release=true" >> $GITHUB_OUTPUT
           fi
@@ -140,7 +179,7 @@ jobs:
   # is only pullable by an entitled account, so an anonymous build would
   # already fail on the FROM.
   sidecar:
-    needs: [test, test-sidecar, check-version]
+    needs: [channel, test, test-sidecar, check-version]
     if: github.event_name != 'pull_request' && needs.check-version.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     env:
@@ -166,16 +205,25 @@ jobs:
         env:
           SHOULD_RELEASE: ${{ needs.check-version.outputs.should_release }}
           VERSION: ${{ needs.check-version.outputs.version }}
+          IS_TEST: ${{ needs.channel.outputs.is_test }}
         run: |
           # `latest` and the commit sha move on every push; the version tag is
           # only published on a release-worthy push, so an already-released
           # image tag is never overwritten with different content.
+          # Test-channel (feature/*, hotfix/*) pushes never touch `latest` or a
+          # version tag - they roll a `preview` tag instead, so a test push can
+          # never disturb the image other installs pull.
           {
             echo "tags<<EOF"
-            echo "${IMAGE}:latest"
-            echo "${IMAGE}:sha-${GITHUB_SHA::7}"
-            if [ "$SHOULD_RELEASE" = "true" ]; then
-              echo "${IMAGE}:${VERSION}"
+            if [ "$IS_TEST" = "true" ]; then
+              echo "${IMAGE}:preview"
+              echo "${IMAGE}:sha-${GITHUB_SHA::7}"
+            else
+              echo "${IMAGE}:latest"
+              echo "${IMAGE}:sha-${GITHUB_SHA::7}"
+              if [ "$SHOULD_RELEASE" = "true" ]; then
+                echo "${IMAGE}:${VERSION}"
+              fi
             fi
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
@@ -187,7 +235,7 @@ jobs:
           images: ${{ env.IMAGE }}
           tags: ${{ steps.tags.outputs.tags }}
           flavor: |
-            latest=true
+            latest=${{ needs.channel.outputs.is_test == 'true' && 'false' || 'true' }}
           labels: |
             org.opencontainers.image.title=Subsync Sidecar
             org.opencontainers.image.description=Automatically re-syncs out-of-sync subtitles using ffsubsync.labels: |
@@ -315,10 +363,12 @@ jobs:
           CHECKSUM=$(md5sum SubsyncStarter_${{ needs.check-version.outputs.version }}.zip | cut -d ' ' -f 1)
           echo "checksum=$CHECKSUM" >> $GITHUB_OUTPUT
 
-      - name: Update manifest.json
+      - name: Update manifest
         env:
           CHANGELOG: ${{ steps.changelog.outputs.changelog }}
           TARGET_ABI: ${{ needs.channel.outputs.target_abi }}
+          IS_TEST: ${{ needs.channel.outputs.is_test }}
+          TAG: ${{ needs.check-version.outputs.tag }}
         run: |
           VERSION="${{ needs.check-version.outputs.version }}"
           CHECKSUM="${{ steps.checksum.outputs.checksum }}"
@@ -330,21 +380,34 @@ jobs:
             --arg ts "$TIMESTAMP" \
             --arg changelog "$CHANGELOG" \
             --arg targetAbi "$TARGET_ABI" \
-            '{version: $ver, changelog: $changelog, targetAbi: $targetAbi, sourceUrl: "https://github.com/Marnalas/jellyfin-subsync/releases/download/v\($ver)/SubsyncStarter_\($ver).zip", checksum: $cs, timestamp: $ts}')
+            --arg tag "$TAG" \
+            '{version: $ver, changelog: $changelog, targetAbi: $targetAbi, sourceUrl: "https://github.com/Marnalas/jellyfin-subsync/releases/download/\($tag)/SubsyncStarter_\($ver).zip", checksum: $cs, timestamp: $ts}')
 
           # Top-level metadata (guid, name, description, overview, owner, category,
           # imageUrl, ...) always comes from the repo's manifest.json, so edits made
           # there are picked up on the next release instead of being silently dropped.
+          # Both the production and testing manifests share this metadata (same
+          # plugin, same GUID) - only their `versions` history differs.
           BASE_METADATA=$(jq '.[0] | del(.versions)' manifest.json)
+
+          if [ "$IS_TEST" = "true" ]; then
+            REL_PATH="testing/manifest.json"
+          else
+            REL_PATH="manifest.json"
+          fi
+          LIVE_URL="https://marnalas.github.io/jellyfin-subsync/${REL_PATH}"
 
           # Version history accumulates on GitHub Pages across releases (the repo's
           # manifest.json isn't updated in place after each release), so pull it from
-          # the live site when available and fall back to the repo file otherwise
-          # (e.g. on the very first release, before Pages has ever been published).
-          LIVE_MANIFEST=$(curl -sf https://marnalas.github.io/jellyfin-subsync/manifest.json || echo "")
+          # the live site when available. Fall back to the repo file for production
+          # (e.g. on the very first release, before Pages has ever been published),
+          # or to an empty list for testing (there is no committed fallback for it).
+          LIVE_MANIFEST=$(curl -sf "$LIVE_URL" || echo "")
 
           if [ -n "$LIVE_MANIFEST" ] && echo "$LIVE_MANIFEST" | jq -e '.[0].versions' > /dev/null 2>&1; then
             EXISTING_VERSIONS=$(echo "$LIVE_MANIFEST" | jq '.[0].versions')
+          elif [ "$IS_TEST" = "true" ]; then
+            EXISTING_VERSIONS='[]'
           else
             EXISTING_VERSIONS=$(jq '.[0].versions // []' manifest.json)
           fi
@@ -352,6 +415,7 @@ jobs:
           # Each channel (targetAbi 10.11.x vs. everything else, i.e. Jellyfin 12+)
           # is capped at 5 versions independently, so a burst of releases on one
           # branch never ages the other branch's releases out of the manifest.
+          mkdir -p "_pages/$(dirname "$REL_PATH")"
           jq -n --argjson meta "$BASE_METADATA" --argjson entry "$NEW_ENTRY" --argjson existing "$EXISTING_VERSIONS" '
             ([$entry] + [$existing[] | select(.version != $entry.version)]) as $all
             | ( ([$all[] | select(.targetAbi | startswith("10.11"))][0:5])
@@ -359,23 +423,35 @@ jobs:
               ) as $capped
             | ($capped | sort_by(.timestamp) | reverse) as $versions
             | [$meta + {versions: $versions}]
-          ' > manifest.json.tmp && mv manifest.json.tmp manifest.json
+          ' > "_pages/${REL_PATH}"
+
+          # actions/deploy-pages replaces the *entire* site on every deploy, so the
+          # channel that wasn't just updated must be copied into _pages/ unchanged -
+          # otherwise this deploy would wipe it out. Skipped if it's never been
+          # published yet (e.g. the very first testing release).
+          if [ "$IS_TEST" = "true" ]; then
+            OTHER_REL_PATH="manifest.json"
+          else
+            OTHER_REL_PATH="testing/manifest.json"
+          fi
+          OTHER_URL="https://marnalas.github.io/jellyfin-subsync/${OTHER_REL_PATH}"
+          OTHER_MANIFEST=$(curl -sf "$OTHER_URL" || echo "")
+          if [ -n "$OTHER_MANIFEST" ]; then
+            mkdir -p "_pages/$(dirname "$OTHER_REL_PATH")"
+            echo "$OTHER_MANIFEST" > "_pages/${OTHER_REL_PATH}"
+          fi
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: v${{ needs.check-version.outputs.version }}
-          name: Subsync v${{ needs.check-version.outputs.version }}
+          tag_name: ${{ needs.check-version.outputs.tag }}
+          name: ${{ needs.channel.outputs.is_test == 'true' && format('Subsync {0} ({1})', needs.check-version.outputs.tag, github.ref_name) || format('Subsync {0}', needs.check-version.outputs.tag) }}
+          prerelease: ${{ needs.channel.outputs.is_test }}
           files: |
             SubsyncStarter_${{ needs.check-version.outputs.version }}.zip
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Prepare Pages content
-        run: |
-          mkdir -p _pages
-          cp manifest.json _pages/
 
       - name: Setup Pages
         uses: actions/configure-pages@v6

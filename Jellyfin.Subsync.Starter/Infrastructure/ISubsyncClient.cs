@@ -55,4 +55,3 @@ public interface ISubsyncClient
         string subtitleFilename,
         CancellationToken cancellationToken);
 }
-

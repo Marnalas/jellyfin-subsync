@@ -64,4 +64,3 @@ internal sealed class SweepProgress(IProgress<double> progress)
         }
     }
 }
-

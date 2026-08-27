@@ -46,7 +46,8 @@ internal static class SubtitleWorkBuilder
         // whichever subtitle comes first syncs against the video, and the
         // rest then find it as an already-synced sibling.
         var candidates = subtitleStreams
-            .Where(stream => stream is { Type: MediaStreamType.Subtitle, IsExternal: true }
+            .Where(stream => stream.Type == MediaStreamType.Subtitle
+                             && stream.IsExternal
                              && stream.IsExternalUrl != true
                              && !string.IsNullOrEmpty(stream.Path))
             .OrderBy(stream => stream.Index)
@@ -102,8 +103,9 @@ internal static class SubtitleWorkBuilder
         SubtitleSyncGroup group,
         Func<string, bool> isAlreadySynced)
     {
-        foreach (var candidate in group.SubtitlePaths)
+        for (var i = 0; i < group.SubtitlePaths.Count; ++i)
         {
+            var candidate = group.SubtitlePaths[i];
             if (string.Equals(candidate, subtitlePath, StringComparison.Ordinal)
                 || group.ForcedSubtitlePaths?.Contains(candidate) == true)
                 continue;
@@ -114,4 +116,3 @@ internal static class SubtitleWorkBuilder
         return group.VideoPath;
     }
 }
-

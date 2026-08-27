@@ -4,9 +4,8 @@ namespace Jellyfin.Subsync.Starter.Configuration;
 public class PathMapEntry
 {
     /// <summary>Path as seen INSIDE the Jellyfin container.</summary>
-    public string JellyfinPath { get; init; } = string.Empty;
+    public string JellyfinPath { get; set; } = string.Empty;
 
     /// <summary>Equivalent path as seen by the subsync-sidecar container.</summary>
-    public string SidecarPath { get; init; } = string.Empty;
+    public string SidecarPath { get; set; } = string.Empty;
 }
-

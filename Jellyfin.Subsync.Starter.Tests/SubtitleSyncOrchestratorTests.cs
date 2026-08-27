@@ -15,7 +15,8 @@ namespace Jellyfin.Subsync.Starter.Tests;
 /// </summary>
 public sealed class SubtitleSyncOrchestratorTests : IDisposable
 {
-    private readonly string _library = Path.Combine(Path.GetTempPath(), "subsync-orchestrator-tests", Path.GetRandomFileName());
+    private readonly string _library =
+        Path.Combine(Path.GetTempPath(), "subsync-orchestrator-tests", Path.GetRandomFileName());
 
     public SubtitleSyncOrchestratorTests() => Directory.CreateDirectory(_library);
 
@@ -39,7 +40,8 @@ public sealed class SubtitleSyncOrchestratorTests : IDisposable
             Task.FromResult(true);
 
         public Task<SyncOutcome> SyncAndWaitAsync(
-            PluginConfiguration config, string folder, string referenceFilename, string subtitleFilename, CancellationToken cancellationToken)
+            PluginConfiguration config, string folder, string referenceFilename, string subtitleFilename,
+            CancellationToken cancellationToken)
         {
             Calls.Add((folder, referenceFilename, subtitleFilename));
             return Task.FromResult(outcome);
@@ -81,6 +83,10 @@ public sealed class SubtitleSyncOrchestratorTests : IDisposable
 
         public int RemoveMissingFiles() => 0;
 
+        public int Clear() => 0;
+
+        public int RemoveForPaths(IEnumerable<string> subtitlePaths) => 0;
+
         public void Dispose()
         {
         }
@@ -114,7 +120,8 @@ public sealed class SubtitleSyncOrchestratorTests : IDisposable
         var subtitle = Write("Movie.en.srt");
         var client = new FakeSubsyncClient(outcome);
         var skipCache = new FakeSkipCache();
-        var orchestrator = new SubtitleSyncOrchestrator(client, skipCache, NullLogger.Instance, new FakeFolderChangeSuppressor());
+        var orchestrator = new SubtitleSyncOrchestrator(client, skipCache, NullLogger.Instance,
+            new FakeFolderChangeSuppressor());
 
         var result = await orchestrator.ProcessAsync(
             Config(), new SubtitleSyncGroup(video, [subtitle]), subtitle, CancellationToken.None);
@@ -132,7 +139,8 @@ public sealed class SubtitleSyncOrchestratorTests : IDisposable
         var client = new FakeSubsyncClient(SyncOutcome.Synced);
         var skipCache = new FakeSkipCache();
         skipCache.Synced.Add(subtitle);
-        var orchestrator = new SubtitleSyncOrchestrator(client, skipCache, NullLogger.Instance, new FakeFolderChangeSuppressor());
+        var orchestrator = new SubtitleSyncOrchestrator(client, skipCache, NullLogger.Instance,
+            new FakeFolderChangeSuppressor());
 
         var result = await orchestrator.ProcessAsync(
             Config(), new SubtitleSyncGroup(video, [subtitle]), subtitle, CancellationToken.None);
@@ -147,7 +155,8 @@ public sealed class SubtitleSyncOrchestratorTests : IDisposable
         var video = Write("Movie.mkv");
         var subtitle = Path.Combine(_library, "never-existed.srt");
         var client = new FakeSubsyncClient(SyncOutcome.Synced);
-        var orchestrator = new SubtitleSyncOrchestrator(client, new FakeSkipCache(), NullLogger.Instance, new FakeFolderChangeSuppressor());
+        var orchestrator = new SubtitleSyncOrchestrator(client, new FakeSkipCache(), NullLogger.Instance,
+            new FakeFolderChangeSuppressor());
 
         var result = await orchestrator.ProcessAsync(
             Config(), new SubtitleSyncGroup(video, [subtitle]), subtitle, CancellationToken.None);
@@ -162,7 +171,8 @@ public sealed class SubtitleSyncOrchestratorTests : IDisposable
         var video = Write("Movie.mkv");
         var subtitle = Write("Movie.en.srt");
         var client = new FakeSubsyncClient(SyncOutcome.Synced);
-        var orchestrator = new SubtitleSyncOrchestrator(client, new FakeSkipCache(), NullLogger.Instance, new FakeFolderChangeSuppressor());
+        var orchestrator = new SubtitleSyncOrchestrator(client, new FakeSkipCache(), NullLogger.Instance,
+            new FakeFolderChangeSuppressor());
 
         var result = await orchestrator.ProcessAsync(
             Config(mapped: false), new SubtitleSyncGroup(video, [subtitle]), subtitle, CancellationToken.None);
@@ -177,7 +187,8 @@ public sealed class SubtitleSyncOrchestratorTests : IDisposable
         var video = Write("Movie.mkv");
         var subtitle = Write("Movie.en.srt");
         var client = new FakeSubsyncClient(SyncOutcome.Synced);
-        var orchestrator = new SubtitleSyncOrchestrator(client, new FakeSkipCache(), NullLogger.Instance, new FakeFolderChangeSuppressor());
+        var orchestrator = new SubtitleSyncOrchestrator(client, new FakeSkipCache(), NullLogger.Instance,
+            new FakeFolderChangeSuppressor());
 
         await orchestrator.ProcessAsync(
             Config(), new SubtitleSyncGroup(video, [subtitle]), subtitle, CancellationToken.None);
@@ -202,7 +213,8 @@ public sealed class SubtitleSyncOrchestratorTests : IDisposable
         var client = new FakeSubsyncClient(SyncOutcome.Synced);
         var skipCache = new FakeSkipCache();
         skipCache.Synced.Add(synced);
-        var orchestrator = new SubtitleSyncOrchestrator(client, skipCache, NullLogger.Instance, new FakeFolderChangeSuppressor());
+        var orchestrator = new SubtitleSyncOrchestrator(client, skipCache, NullLogger.Instance,
+            new FakeFolderChangeSuppressor());
 
         await orchestrator.ProcessAsync(
             Config(), new SubtitleSyncGroup(video, [synced, pending]), pending, CancellationToken.None);
@@ -225,7 +237,8 @@ public sealed class SubtitleSyncOrchestratorTests : IDisposable
         var subtitle = Write("Movie.en.srt");
         var suppressor = new FakeFolderChangeSuppressor();
         var client = new SuppressionObservingSubsyncClient(suppressor);
-        var orchestrator = new SubtitleSyncOrchestrator(client, new FakeSkipCache(), NullLogger.Instance, suppressor);
+        var orchestrator =
+            new SubtitleSyncOrchestrator(client, new FakeSkipCache(), NullLogger.Instance, suppressor);
 
         await orchestrator.ProcessAsync(
             Config(), new SubtitleSyncGroup(video, [subtitle]), subtitle, CancellationToken.None);
@@ -259,7 +272,8 @@ public sealed class SubtitleSyncOrchestratorTests : IDisposable
             Task.FromResult(true);
 
         public Task<SyncOutcome> SyncAndWaitAsync(
-            PluginConfiguration config, string folder, string referenceFilename, string subtitleFilename, CancellationToken cancellationToken) =>
+            PluginConfiguration config, string folder, string referenceFilename, string subtitleFilename,
+            CancellationToken cancellationToken) =>
             throw new InvalidOperationException("sidecar exploded");
     }
 
@@ -271,11 +285,11 @@ public sealed class SubtitleSyncOrchestratorTests : IDisposable
             Task.FromResult(true);
 
         public Task<SyncOutcome> SyncAndWaitAsync(
-            PluginConfiguration config, string folder, string referenceFilename, string subtitleFilename, CancellationToken cancellationToken)
+            PluginConfiguration config, string folder, string referenceFilename, string subtitleFilename,
+            CancellationToken cancellationToken)
         {
             ActiveFoldersDuringCall.AddRange(suppressor.ActiveFolders);
             return Task.FromResult(SyncOutcome.Synced);
         }
     }
 }
-

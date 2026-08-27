@@ -203,4 +203,3 @@ public class SweepProgressTests
             Assert.True(values[i] > values[i - 1], $"report {i} ({values[i]}) did not advance past {values[i - 1]}");
     }
 }
-

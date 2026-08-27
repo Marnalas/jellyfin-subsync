@@ -1,4 +1,7 @@
-<div id="SubsyncConfigPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-checkbox">
+<div id="SubsyncConfigPage" data-role="page" data-title="Subsync"
+     class="page type-interior withTabs pluginConfigurationPage SubsyncConfigPage"
+     data-require="emby-input,emby-button,emby-checkbox,mainTabsManager"
+     data-controller="__plugin/SubsyncJs">
     <div data-role="content">
         <div class="content-primary">
             <form id="SubsyncConfigForm" style="max-width:60em;margin:auto;">
@@ -21,20 +24,18 @@
                 </div>
 
                 <div class="inputContainer">
-                    <label class="inputLabel inputLabelUnfocused" for="WatchedPathsMaps">Path mappings</label>
-                    <textarea is="emby-textarea" id="WatchedPathsMaps" rows="8" style="width:100%;"></textarea>
+                    <label class="inputLabel inputLabelUnfocused">Path mappings</label>
+                    <div id="LibraryList"></div>
                     <div class="fieldDescription">
-                        One library per line, in the form <code>jellyfin-path : sidecar-path</code>,
-                        e.g. <code>/path/to/jellyfin/library : /path/in/sidecar/container</code>. The left side is the
-                        path as seen INSIDE the Jellyfin container (must match your compose volume mounts);
-                        the right side is the equivalent path as seen by the subsync-sidecar container.
-                        Each line is independent - there's no shared root requirement between libraries,
-                        so they can be mounted under completely different layouts on each side.
+                        Pick which of your Jellyfin libraries the sweep syncs subtitles for, and tell it where
+                        each library's folders live from the subsync-sidecar container's point of view. The
+                        Jellyfin-side paths below come straight from each library's own configuration - you
+                        only need to fill in the sidecar-side equivalent. Libraries are disabled by default.
                         <br /><br />
                         This is path translation only - it does not choose what gets swept, your Jellyfin
-                        libraries do. But every library path still needs a matching line here: a subtitle
-                        whose path matches no entry is skipped with a warning, because the sidecar would
-                        have no way to reach it.
+                        libraries do. But every enabled library's folders still need a sidecar path filled in
+                        here: a subtitle whose path matches no mapping is skipped with a warning, because the
+                        sidecar would have no way to reach it.
                     </div>
                 </div>
 
@@ -85,8 +86,10 @@
                 </div>
 
                 <div class="inputContainer">
-                    <label class="inputLabel inputLabelUnfocused" for="MaxParallelJobs">Max parallel jobs</label>
-                    <input is="emby-input" type="number" id="MaxParallelJobs" min="1" />
+                    <label class="inputLabel inputLabelUnfocused" for="MaxParallelJobs">
+                        Max parallel jobs: <span id="MaxParallelJobsValue">1</span>
+                    </label>
+                    <input type="range" id="MaxParallelJobs" min="1" max="32" step="1" style="width:100%;" />
                     <div class="fieldDescription">
                         How many subtitle files the sweep submits to the sidecar at once. Default is 1.
                         <strong>Raising this only helps if the subsync-sidecar container's own
@@ -115,87 +118,4 @@
             </form>
         </div>
     </div>
-
-    <script type="text/javascript">
-        (function () {
-            var pluginId = '6e9cb927-95fc-4ab9-8267-c896060ae50e';
-
-            function mapToLines(entries) {
-                return (entries || []).map(function (entry) {
-                    return entry.JellyfinPath + ' : ' + entry.SidecarPath;
-                }).join('\n');
-            }
-
-            function linesToMap(text) {
-                var entries = [];
-                text.split('\n').forEach(function (line) {
-                    var trimmed = line.trim();
-                    if (!trimmed) {
-                        return;
-                    }
-                    var idx = trimmed.indexOf(':');
-                    if (idx === -1) {
-                        return;
-                    }
-                    var jellyfinPath = trimmed.slice(0, idx).trim();
-                    var sidecarPath = trimmed.slice(idx + 2).trim();
-                    if (jellyfinPath && sidecarPath) {
-                        entries.push({ JellyfinPath: jellyfinPath, SidecarPath: sidecarPath });
-                    }
-                });
-                return entries;
-            }
-
-            function arrayToCsv(arr) {
-                return (arr || []).join(',');
-            }
-
-            function csvToArray(text) {
-                return text.split(',').map(function (s) { return s.trim(); }).filter(Boolean);
-            }
-
-            document.querySelector('#SubsyncConfigPage')
-                .addEventListener('pageshow', function () {
-                    Dashboard.showLoadingMsg();
-                    ApiClient.getPluginConfiguration(pluginId).then(function (config) {
-                        document.querySelector('#SidecarUrl').value = config.SidecarUrl || '';
-                        document.querySelector('#WatchedPathsMaps').value = mapToLines(config.WatchedPathsMaps);
-                        document.querySelector('#SubtitleExtensions').value = arrayToCsv(config.SubtitleExtensions);
-                        document.querySelector('#PollIntervalMilliseconds').value = config.PollIntervalMilliseconds || 3000;
-                        document.querySelector('#JobTimeoutSeconds').value = config.JobTimeoutSeconds || 1800;
-                        // Not `|| 3600`: 0 is a legitimate value here (wait
-                        // indefinitely) and would otherwise be shown as an hour.
-                        document.querySelector('#QueueWaitTimeoutSeconds').value =
-                            typeof config.QueueWaitTimeoutSeconds === 'number' ? config.QueueWaitTimeoutSeconds : 3600;
-                        document.querySelector('#SidecarRequestTimeoutSeconds').value = config.SidecarRequestTimeoutSeconds || 30;
-                        document.querySelector('#MaxParallelJobs').value = config.MaxParallelJobs || 1;
-                        Dashboard.hideLoadingMsg();
-                    });
-                });
-
-            document.querySelector('#SubsyncConfigForm')
-                .addEventListener('submit', function (e) {
-                    e.preventDefault();
-                    Dashboard.showLoadingMsg();
-                    ApiClient.getPluginConfiguration(pluginId).then(function (config) {
-                        config.SidecarUrl = document.querySelector('#SidecarUrl').value.trim();
-                        config.WatchedPathsMaps = linesToMap(document.querySelector('#WatchedPathsMaps').value);
-                        config.SubtitleExtensions = csvToArray(document.querySelector('#SubtitleExtensions').value);
-                        config.PollIntervalMilliseconds = parseInt(document.querySelector('#PollIntervalMilliseconds').value, 10) || 3000;
-                        config.JobTimeoutSeconds = parseInt(document.querySelector('#JobTimeoutSeconds').value, 10) || 1800;
-                        // Same reason as on load: `|| 3600` would quietly turn a
-                        // deliberate 0 ("wait indefinitely") back into an hour.
-                        var queueWait = parseInt(document.querySelector('#QueueWaitTimeoutSeconds').value, 10);
-                        config.QueueWaitTimeoutSeconds = isNaN(queueWait) || queueWait < 0 ? 3600 : queueWait;
-                        config.SidecarRequestTimeoutSeconds = parseInt(document.querySelector('#SidecarRequestTimeoutSeconds').value, 10) || 30;
-                        config.MaxParallelJobs = Math.max(1, parseInt(document.querySelector('#MaxParallelJobs').value, 10) || 1);
-
-                        ApiClient.updatePluginConfiguration(pluginId, config).then(function (result) {
-                            Dashboard.processPluginConfigurationUpdateResult(result);
-                        });
-                    });
-                    return false;
-                });
-        })();
-    </script>
 </div>

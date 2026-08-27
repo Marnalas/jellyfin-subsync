@@ -6,7 +6,7 @@ using MediaBrowser.Model.Serialization;
 
 namespace Jellyfin.Subsync.Starter;
 
-public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
+public sealed class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 {
     public static Plugin? Instance { get; private set; }
 
@@ -34,6 +34,38 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             EmbeddedResourcePath = $"{GetType().Namespace}.Configuration.configPage.html",
             EnableInMainMenu = true
         };
+        yield return new PluginPageInfo
+        {
+            Name = "SubsyncJs",
+            EmbeddedResourcePath = $"{GetType().Namespace}.Configuration.configPage.js"
+        };
+        yield return new PluginPageInfo
+        {
+            Name = "Cache",
+            EmbeddedResourcePath = $"{GetType().Namespace}.Configuration.configCachePage.html"
+        };
+        yield return new PluginPageInfo
+        {
+            Name = "CacheJs",
+            EmbeddedResourcePath = $"{GetType().Namespace}.Configuration.configCachePage.js"
+        };
+        yield return new PluginPageInfo
+        {
+            Name = "Sync",
+            EmbeddedResourcePath = $"{GetType().Namespace}.Configuration.configSyncPage.html"
+        };
+        yield return new PluginPageInfo
+        {
+            Name = "SyncJs",
+            EmbeddedResourcePath = $"{GetType().Namespace}.Configuration.configSyncPage.js"
+        };
+    }
+
+    public override void UpdateConfiguration(BasePluginConfiguration configuration)
+    {
+        if (configuration is PluginConfiguration pluginConfiguration)
+            pluginConfiguration.DeriveWatchedPathsMaps();
+
+        base.UpdateConfiguration(configuration);
     }
 }
-

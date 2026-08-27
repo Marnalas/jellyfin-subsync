@@ -40,11 +40,11 @@ internal sealed class LibrarySubtitleSource(
         logger.LogInformation("Subsync sweep: inspecting {Count} library video item(s)", itemIds.Count);
         progress.SetTotal(itemIds.Count);
 
-        foreach (var id in itemIds)
+        for (var i = 0; i < itemIds.Count; ++i)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var item = libraryManager.GetItemById(id);
+            var item = libraryManager.GetItemById(itemIds[i]);
             if (item is null)
             {
                 // Deleted between the id query and here.
@@ -83,25 +83,22 @@ internal sealed class LibrarySubtitleSource(
             var isDiscImageOrFolder = item is Video video && video.VideoType != VideoType.VideoFile;
 
             var work = SubtitleWorkBuilder.BuildWork(item.Path, isDiscImageOrFolder, subtitleStreams, config);
-            foreach (var subtitle in work.SubtitlesInOtherDirectories)
+            for (var j = 0; j < work.SubtitlesInOtherDirectories.Count; ++j)
             {
                 logger.LogWarning(
                     "Subsync sweep: {Subtitle} is not in the same folder as {Video}; the sidecar syncs one folder at a time, skipping",
-                    subtitle,
+                    work.SubtitlesInOtherDirectories[j],
                     item.Path);
             }
 
-            switch (work.Reason)
+            if (work.Reason == ItemSkipReason.PathIsDiscImageOrFolder)
             {
-                case ItemSkipReason.PathIsDiscImageOrFolder:
-                    logger.LogWarning(
-                        "Subsync sweep: {Path} is a disc image or disc folder with no single video file to align against, skipping its subtitles",
-                        item.Path);
-                    break;
-                case ItemSkipReason.NoPath:
-                    logger.LogDebug("Subsync sweep: item {Id} has no file path, skipping", item.Id);
-                    break;
+                logger.LogWarning(
+                    "Subsync sweep: {Path} is a disc image or disc folder with no single video file to align against, skipping its subtitles",
+                    item.Path);
             }
+            else if (work.Reason == ItemSkipReason.NoPath)
+                logger.LogDebug("Subsync sweep: item {Id} has no file path, skipping", item.Id);
 
             if (work.Group is not null)
                 yield return work.Group;
@@ -133,4 +130,3 @@ internal sealed class LibrarySubtitleSource(
         Recursive = true
     };
 }
-

@@ -24,7 +24,7 @@ public class SkipCache : ISkipCache
     private const string Sha256Prefix = "sha256:";
 
     /// <summary>
-    /// Save() serializes and rewrites the whole dictionary, so doing it per
+    /// Save() serialises and rewrites the whole dictionary, so doing it per
     /// file made a sweep quadratic in the size of the cache - on a library
     /// with 50k tracked subtitles, megabytes written per subtitle synced.
     /// Batching bounds what an abrupt shutdown loses to the last few
@@ -32,6 +32,7 @@ public class SkipCache : ISkipCache
     /// write amplification.
     /// </summary>
     private const int SaveBatchSize = 25;
+
     private static readonly TimeSpan SaveInterval = TimeSpan.FromSeconds(30);
 
     private readonly string _path;
@@ -220,6 +221,44 @@ public class SkipCache : ISkipCache
         }
     }
 
+    /// <summary>
+    /// Persists immediately rather than through the batched MarkSynced path -
+    /// this is a rare, interactive admin action, not sweep hot-path, so there's
+    /// no write-amplification concern to batch against.
+    /// </summary>
+    public int Clear()
+    {
+        lock (_lock)
+        {
+            var count = _hashes.Count;
+            if (count == 0)
+                return 0;
+
+            _hashes.Clear();
+            Save();
+            _pendingWrites = 0;
+            _lastSaveUtc = DateTime.UtcNow;
+            return count;
+        }
+    }
+
+    /// <summary>See <see cref="Clear"/> for why this persists immediately instead of batching.</summary>
+    public int RemoveForPaths(IEnumerable<string> subtitlePaths)
+    {
+        lock (_lock)
+        {
+            var removed = subtitlePaths.Count(path => _hashes.Remove(path));
+
+            if (removed == 0)
+                return 0;
+
+            Save();
+            _pendingWrites = 0;
+            _lastSaveUtc = DateTime.UtcNow;
+            return removed;
+        }
+    }
+
     public void Dispose()
     {
         Flush();
@@ -303,4 +342,3 @@ public class SkipCache : ISkipCache
         return true;
     }
 }
-

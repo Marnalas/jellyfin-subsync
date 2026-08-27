@@ -80,4 +80,3 @@ internal sealed class FolderChangeSuppressor(ILibraryMonitor libraryMonitor) : I
         }
     }
 }
-

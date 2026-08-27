@@ -144,4 +144,3 @@ internal sealed class ManualTimeProvider(DateTimeOffset start) : TimeProvider
         }
     }
 }
-

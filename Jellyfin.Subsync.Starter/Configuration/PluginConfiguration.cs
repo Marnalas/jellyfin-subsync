@@ -8,7 +8,7 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Base URL of the subsync-sidecar service, e.g. http://subsync-sidecar:8000
     /// (use the compose service name so it resolves on the docker network).
     /// </summary>
-    public string SidecarUrl { get; init; } = "http://subsync-sidecar:8000";
+    public string SidecarUrl { get; set; } = "http://subsync-sidecar:8000";
 
     /// <summary>
     /// Maps each library path, as seen INSIDE the Jellyfin container, to
@@ -25,13 +25,21 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Jellyfin persists plugin configuration via XmlSerializer, which
     /// cannot serialize types that merely implement IDictionary.
     /// </remarks>
-    public List<PathMapEntry> WatchedPathsMaps { get; init; } = [];
+    public List<PathMapEntry> WatchedPathsMaps { get; set; } = [];
+
+    /// <summary>
+    /// Admin-facing, per-library source of truth for path mapping, edited
+    /// from the config page's library list UI. WatchedPathsMaps above is
+    /// derived from this (enabled libraries only) whenever the plugin
+    /// configuration is saved - see Plugin.UpdateConfiguration.
+    /// </summary>
+    public List<LibraryPathMapping> LibraryPathMappings { get; set; } = [];
 
     /// <summary>Subtitle file extensions to sync. Narrows the set Jellyfin already recognises.</summary>
     public List<string> SubtitleExtensions { get; set; } = [];
 
     /// <summary>How often the sidecar job status is polled while waiting for a sync to finish.</summary>
-    public int PollIntervalMilliseconds { get; init; } = 3000;
+    public int PollIntervalMilliseconds { get; set; } = 3000;
 
     /// <summary>
     /// Max time a single sync may spend actually running on the sidecar.
@@ -41,7 +49,7 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Time the job spends queued behind other jobs is NOT charged against
     /// this - see QueueWaitTimeoutSeconds.
     /// </summary>
-    public int JobTimeoutSeconds { get; init; } = 1800;
+    public int JobTimeoutSeconds { get; set; } = 1800;
 
     /// <summary>
     /// Max time a submitted job may sit queued on the sidecar before this
@@ -49,7 +57,7 @@ public class PluginConfiguration : BasePluginConfiguration
     /// submitted than the sidecar has workers for - compare MaxParallelJobs
     /// below with the sidecar's MAX_PARALLEL_JOBS. 0 waits indefinitely.
     /// </summary>
-    public int QueueWaitTimeoutSeconds { get; init; } = 3600;
+    public int QueueWaitTimeoutSeconds { get; set; } = 3600;
 
     /// <summary>
     /// Timeout for one individual HTTP call to the sidecar (submit, poll,
@@ -68,4 +76,3 @@ public class PluginConfiguration : BasePluginConfiguration
     /// </summary>
     public int MaxParallelJobs { get; set; } = 1;
 }
-

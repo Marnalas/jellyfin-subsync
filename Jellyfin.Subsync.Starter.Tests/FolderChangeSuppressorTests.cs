@@ -106,4 +106,3 @@ public sealed class FolderChangeSuppressorTests
         Assert.Single(monitor.CompleteCalls);
     }
 }
-

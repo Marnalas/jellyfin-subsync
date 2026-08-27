@@ -26,4 +26,3 @@ public sealed class PluginConfigurationProvider : IPluginConfigurationProvider
         Plugin.Instance?.Configuration
         ?? throw new InvalidOperationException("The Subsync plugin is not loaded");
 }
-

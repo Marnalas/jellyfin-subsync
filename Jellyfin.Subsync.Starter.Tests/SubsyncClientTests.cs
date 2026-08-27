@@ -22,12 +22,12 @@ public class SubsyncClientTests
         int jobTimeoutSeconds = 1800,
         int queueWaitTimeoutSeconds = 3600,
         int pollIntervalMilliseconds = 1000) => new()
-        {
-            SidecarUrl = "http://sidecar:8000",
-            JobTimeoutSeconds = jobTimeoutSeconds,
-            QueueWaitTimeoutSeconds = queueWaitTimeoutSeconds,
-            PollIntervalMilliseconds = pollIntervalMilliseconds
-        };
+    {
+        SidecarUrl = "http://sidecar:8000",
+        JobTimeoutSeconds = jobTimeoutSeconds,
+        QueueWaitTimeoutSeconds = queueWaitTimeoutSeconds,
+        PollIntervalMilliseconds = pollIntervalMilliseconds
+    };
 
     private static HttpResponseMessage Created(string jobId = "job-1", int? effectiveTimeoutSeconds = null) =>
         FakeHttpMessageHandler.Json(
@@ -400,4 +400,3 @@ public class SubsyncClientTests
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => task);
     }
 }
-

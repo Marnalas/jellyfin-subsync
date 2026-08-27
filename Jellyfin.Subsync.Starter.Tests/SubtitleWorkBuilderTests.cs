@@ -420,4 +420,3 @@ public class ChooseReferenceTests
         Assert.Equal("/m/Movie.mkv", SubtitleWorkBuilder.ChooseReference("/m/Movie.en.srt", group, _ => true));
     }
 }
-

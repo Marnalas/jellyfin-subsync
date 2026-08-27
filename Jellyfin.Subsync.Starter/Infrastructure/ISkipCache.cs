@@ -24,5 +24,10 @@ public interface ISkipCache : IDisposable
     /// implementation for why.
     /// </summary>
     int RemoveMissingFiles();
-}
 
+    /// <summary>Removes every tracked entry. Returns how many were removed.</summary>
+    int Clear();
+
+    /// <summary>Removes the given paths if present. Returns how many were actually removed.</summary>
+    int RemoveForPaths(IEnumerable<string> subtitlePaths);
+}

@@ -45,4 +45,3 @@ internal sealed record ItemSubtitleWork(
     SubtitleSyncGroup? Group,
     ItemSkipReason Reason,
     IReadOnlyList<string> SubtitlesInOtherDirectories);
-

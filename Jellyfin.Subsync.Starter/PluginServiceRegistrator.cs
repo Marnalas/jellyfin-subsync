@@ -44,4 +44,3 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
             new FolderChangeSuppressor(provider.GetRequiredService<ILibraryMonitor>()));
     }
 }
-

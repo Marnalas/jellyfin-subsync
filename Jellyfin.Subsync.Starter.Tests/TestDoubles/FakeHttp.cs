@@ -73,4 +73,3 @@ internal sealed class FakeHttpClientFactory(HttpMessageHandler handler) : IHttpC
         return new HttpClient(handler, disposeHandler: false);
     }
 }
-
