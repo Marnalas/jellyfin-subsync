@@ -92,10 +92,11 @@ public class SyncController(
         }
 
         var externalSubtitlePaths = SubtitleMatcher.GetExternalSubtitlePaths(subtitleStreams).ToList();
-        var cleared = skipCache.RemoveForPaths(externalSubtitlePaths);
-        failCache.RemoveForPaths(externalSubtitlePaths);
+        var removed = skipCache.RemoveForPaths(externalSubtitlePaths);
+        var removedFailures = failCache.RemoveForPaths(externalSubtitlePaths);
         logger.LogInformation(
-            "Subsync sync: cleared {Count} skip-cache entr(ies) for {Item} before syncing", cleared, item.Name);
+            "Subsync cache: cleared {Count} skip-cache and {FailureCount} fail-cache entr(ies) for {Item}",
+            removed, removedFailures, item.Name);
 
         // ISO / BDMV / VIDEO_TS: no single elementary video file for
         // ffsubsync to align against. Read from metadata, not a stat.
@@ -123,7 +124,7 @@ public class SyncController(
         }
 
         if (work.Group is null)
-            return Ok(new { cleared, reason = work.Reason.ToString(), results = Array.Empty<object>() });
+            return Ok(new { cleared = removed + removedFailures, reason = work.Reason.ToString(), results = Array.Empty<object>() });
 
         var orchestrator = new SubtitleSyncOrchestrator(client, skipCache, failCache, logger, suppressor);
         var results = new List<object>();
@@ -162,7 +163,7 @@ public class SyncController(
             failCache.Flush();
         }
 
-        return Ok(new { cleared, reason = work.Reason.ToString(), results });
+        return Ok(new { cleared = removed + removedFailures, reason = work.Reason.ToString(), results });
     }
 
     private bool IsSweepRunning() =>
