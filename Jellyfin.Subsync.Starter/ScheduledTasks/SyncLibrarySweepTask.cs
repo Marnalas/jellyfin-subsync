@@ -82,7 +82,7 @@ public class SyncLibrarySweepTask(
             // video file independently. Groups are streamed lazily item by item
             // rather than collected upfront, so a huge library never sits fully
             // buffered in memory before syncing starts - only the id list is
-            // materialised, which is also what gives the progress bar its
+            // materialized, which is also what gives the progress bar its
             // denominator. ForEachAsync pulls the next group only as a slot
             // frees up rather than draining the enumerable, so how far the
             // enumeration has got is a fair stand-in for how far the sweep has.
@@ -96,7 +96,7 @@ public class SyncLibrarySweepTask(
                         // A throw here would otherwise cancel every other worker
                         // and abandon the rest of the sweep, so a single bad file
                         // (unreadable subtitle, transient IO error) can't cost a
-                        // multi-hour run. Real cancellation is still honoured.
+                        // multi-hour run. Real cancellation is still honored.
                         try
                         {
                             await _orchestrator.ProcessAsync(config, group, subtitlePath, ct).ConfigureAwait(false);
@@ -124,7 +124,7 @@ public class SyncLibrarySweepTask(
         {
             // Saves are batched, so the last few marks are still in memory
             // here. This is the only guaranteed point to get them on disk -
-            // including on a cancelled run, where everything already synced
+            // including on a canceled run, where everything already synced
             // still deserves to be skipped next time.
             skipCache.Flush();
         }
@@ -132,7 +132,7 @@ public class SyncLibrarySweepTask(
         // After the sweep, never before it: by now the mounts have
         // demonstrably been live, whereas at sweep start a volume that
         // hasn't finished mounting looks exactly like a deleted library.
-        // Outside the finally for the same reason - a cancelled sweep never
+        // Outside the finally for the same reason - a canceled sweep never
         // visited most of the library and has no business pruning it.
         var removed = skipCache.RemoveMissingFiles();
         if (removed > 0)

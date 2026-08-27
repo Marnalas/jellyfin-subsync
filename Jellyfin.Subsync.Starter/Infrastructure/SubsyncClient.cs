@@ -232,34 +232,28 @@ public sealed class SubsyncClient(
                 // this used to - meant a busy sidecar produced timeouts on
                 // jobs that had never started, whose results then landed
                 // anyway.
-                if (queueBudget is not null && _timeProvider.GetUtcNow() - submittedAt > queueBudget)
-                {
-                    logger.LogError(
-                        "Subsync: job {JobId} for {Subtitle} was still queued after {Seconds}s, cancelling it. "
-                        + "Check that Max parallel jobs isn't set well above the sidecar's MAX_PARALLEL_JOBS",
-                        created.JobId, subtitleFilename, config.QueueWaitTimeoutSeconds);
-                    await TryCancelAsync(config, baseUrl, created.JobId, subtitleFilename).ConfigureAwait(false);
-                    return SyncOutcome.QueueTimedOut;
-                }
+                if (queueBudget is null || !(_timeProvider.GetUtcNow() - submittedAt > queueBudget)) continue;
+                logger.LogError(
+                    "Subsync: job {JobId} for {Subtitle} was still queued after {Seconds}s, cancelling it. "
+                    + "Check that Max parallel jobs isn't set well above the sidecar's MAX_PARALLEL_JOBS",
+                    created.JobId, subtitleFilename, config.QueueWaitTimeoutSeconds);
+                await TryCancelAsync(config, baseUrl, created.JobId, subtitleFilename).ConfigureAwait(false);
+                return SyncOutcome.QueueTimedOut;
             }
-            else
-            {
-                // Prefer the sidecar's own measurement: it's immune to clock
-                // skew between the two containers and to how coarse polling is.
-                var elapsed = status.RunningSeconds is { } serverSeconds
-                    ? TimeSpan.FromSeconds(serverSeconds)
-                    : _timeProvider.GetUtcNow() - firstSeenRunningAt.Value;
 
-                if (elapsed > runBudget)
-                {
-                    logger.LogError(
-                        "Subsync: job {JobId} for {Subtitle} ran past {Seconds}s without finishing, cancelling it "
-                        + "so it can't replace the subtitle after we've stopped tracking it",
-                        created.JobId, subtitleFilename, effectiveTimeout);
-                    await TryCancelAsync(config, baseUrl, created.JobId, subtitleFilename).ConfigureAwait(false);
-                    return SyncOutcome.RunTimedOut;
-                }
-            }
+            // Prefer the sidecar's own measurement: it's immune to clock
+            // skew between the two containers and to how coarse polling is.
+            var elapsed = status.RunningSeconds is { } serverSeconds
+                ? TimeSpan.FromSeconds(serverSeconds)
+                : _timeProvider.GetUtcNow() - firstSeenRunningAt.Value;
+
+            if (elapsed <= runBudget) continue;
+            logger.LogError(
+                "Subsync: job {JobId} for {Subtitle} ran past {Seconds}s without finishing, cancelling it "
+                + "so it can't replace the subtitle after we've stopped tracking it",
+                created.JobId, subtitleFilename, effectiveTimeout);
+            await TryCancelAsync(config, baseUrl, created.JobId, subtitleFilename).ConfigureAwait(false);
+            return SyncOutcome.RunTimedOut;
         }
     }
 

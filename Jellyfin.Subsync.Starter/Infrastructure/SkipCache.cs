@@ -24,7 +24,7 @@ public class SkipCache : ISkipCache
     private const string Sha256Prefix = "sha256:";
 
     /// <summary>
-    /// Save() serialises and rewrites the whole dictionary, so doing it per
+    /// Save() serializes and rewrites the whole dictionary, so doing it per
     /// file made a sweep quadratic in the size of the cache - on a library
     /// with 50k tracked subtitles, megabytes written per subtitle synced.
     /// Batching bounds what an abrupt shutdown loses to the last few

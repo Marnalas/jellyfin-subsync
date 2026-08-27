@@ -40,11 +40,11 @@ internal sealed class LibrarySubtitleSource(
         logger.LogInformation("Subsync sweep: inspecting {Count} library video item(s)", itemIds.Count);
         progress.SetTotal(itemIds.Count);
 
-        for (var i = 0; i < itemIds.Count; ++i)
+        foreach (var itemId in itemIds)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var item = libraryManager.GetItemById(itemIds[i]);
+            var item = libraryManager.GetItemById(itemId);
             if (item is null)
             {
                 // Deleted between the id query and here.
@@ -83,22 +83,25 @@ internal sealed class LibrarySubtitleSource(
             var isDiscImageOrFolder = item is Video video && video.VideoType != VideoType.VideoFile;
 
             var work = SubtitleWorkBuilder.BuildWork(item.Path, isDiscImageOrFolder, subtitleStreams, config);
-            for (var j = 0; j < work.SubtitlesInOtherDirectories.Count; ++j)
+            foreach (var subtitles in work.SubtitlesInOtherDirectories)
             {
                 logger.LogWarning(
                     "Subsync sweep: {Subtitle} is not in the same folder as {Video}; the sidecar syncs one folder at a time, skipping",
-                    work.SubtitlesInOtherDirectories[j],
+                    subtitles,
                     item.Path);
             }
 
-            if (work.Reason == ItemSkipReason.PathIsDiscImageOrFolder)
+            switch (work.Reason)
             {
-                logger.LogWarning(
-                    "Subsync sweep: {Path} is a disc image or disc folder with no single video file to align against, skipping its subtitles",
-                    item.Path);
+                case ItemSkipReason.PathIsDiscImageOrFolder:
+                    logger.LogWarning(
+                        "Subsync sweep: {Path} is a disc image or disc folder with no single video file to align against, skipping its subtitles",
+                        item.Path);
+                    break;
+                case ItemSkipReason.NoPath:
+                    logger.LogDebug("Subsync sweep: item {Id} has no file path, skipping", item.Id);
+                    break;
             }
-            else if (work.Reason == ItemSkipReason.NoPath)
-                logger.LogDebug("Subsync sweep: item {Id} has no file path, skipping", item.Id);
 
             if (work.Group is not null)
                 yield return work.Group;
