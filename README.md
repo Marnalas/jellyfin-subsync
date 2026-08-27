@@ -101,7 +101,7 @@ smoke test are in [Installation](docs/INSTALLATION.md).
 | Doc | Covers |
 | --- | --- |
 | [Installation](docs/INSTALLATION.md) | Full sidecar + plugin setup, config reference, XML example, post-install smoke test |
-| [Configuration](docs/CONFIGURATION.md) | Job timeout vs queue wait timeout budgets |
+| [Configuration](docs/CONFIGURATION.md) | Job timeout vs queue wait timeout budgets, useful `FFSUBSYNC_EXTRA_ARGS` flags |
 | [Known limitations](docs/KNOWN_LIMITATIONS.md) | What the plugin can't do and why |
 | [Breaking changes](docs/BREAKING_CHANGES.md) | Upgrade notes per version |
 | [Development](docs/DEVELOPMENT.md) | Running the plugin/sidecar test suites |
