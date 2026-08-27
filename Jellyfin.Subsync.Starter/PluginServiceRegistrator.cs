@@ -20,14 +20,16 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
     {
         serviceCollection.AddSingleton<IPluginConfigurationProvider, PluginConfigurationProvider>();
 
-        serviceCollection.AddSingleton<ISkipCache>(provider =>
-        {
-            var applicationPaths = provider.GetRequiredService<IApplicationPaths>();
-            var dataFolder = Path.Combine(applicationPaths.DataPath, "subsync-starter");
-            var logger = provider.GetRequiredService<ILogger<SkipCache>>();
-            return new SkipCache(dataFolder, logger);
-        });
-            
+        RegisterCacheService<ISkipCache, SkipCache>(serviceCollection,
+            static (dataFolder, logger, _) => new SkipCache(dataFolder, logger));
+        RegisterCacheService<IFailCache, FailCache>(serviceCollection,
+            static (dataFolder, logger, provider) =>
+            {
+                var maxConsecutiveFailures = provider.GetRequiredService<IPluginConfigurationProvider>()
+                    .GetSnapshot().MaxConsecutiveFailures;
+                return new FailCache(dataFolder, maxConsecutiveFailures, logger);
+            });
+
         // SubsyncClient asks the factory per request.
         serviceCollection.AddHttpClient(nameof(SubsyncClient));
 
@@ -42,5 +44,20 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         // stays correct even if two sweeps somehow overlap.
         serviceCollection.AddSingleton<IFolderChangeSuppressor>(provider =>
             new FolderChangeSuppressor(provider.GetRequiredService<ILibraryMonitor>()));
+    }
+
+    private static void RegisterCacheService<TICache, TCache>(
+        IServiceCollection serviceCollection,
+        Func<string, ILogger<TCache>, IServiceProvider, TCache> factory)
+        where TICache : class, ICache
+        where TCache : class, TICache
+    {
+        serviceCollection.AddSingleton<TICache>(provider =>
+        {
+            var applicationPaths = provider.GetRequiredService<IApplicationPaths>();
+            var dataFolder = Path.Combine(applicationPaths.DataPath, "subsync-starter");
+            var logger = provider.GetRequiredService<ILogger<TCache>>();
+            return factory(dataFolder, logger, provider);
+        });
     }
 }

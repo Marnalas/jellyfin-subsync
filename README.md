@@ -21,7 +21,9 @@ made of two pieces:
   belongs to which video is Jellyfin's own answer, not a filename guess, so
   `.forced`, `.sdh` and `pt-BR` style tags work exactly as well as plain
   `.en`. Anything already synced is skipped (tracked by content hash, so
-  repeat sweeps are cheap). It also adds a "Run Now" trigger under
+  repeat sweeps are cheap), and a subtitle that keeps failing to sync stops
+  being retried automatically after a configurable number of consecutive
+  failures. It also adds a "Run Now" trigger under
   Dashboard > Scheduled Tasks, and an admin config page under Dashboard >
   Plugins > Subsync.
 - **`subsync-sidecar/`** - a small always-on HTTP service, run as its own
@@ -31,15 +33,15 @@ made of two pieces:
 
 ```
    ┌─────────────────────────────┐
-   │  Jellyfin container          │
-   │  ┌─────────────────────────┐ │      HTTP (POST /sync, GET /jobs/x)
-   │  │ Subsync plugin           │─┼──────────────────┐
-   │  │  - Scheduled sweep task  │ │                   ▼
-   │  │  - skip-cache            │ │        ┌───────────────────────┐
-   │  │  - admin config page     │ │        │  subsync-sidecar       │
-   │  └─────────────────────────┘ │        │  (own container, runs  │
-   └─────────────────────────────┘         │  ffsubsync + ffmpeg)   │
-                                            └───────────────────────┘
+   │  Jellyfin container         │
+   │  ┌─────────────────────────┐│      HTTP (POST /sync, GET /jobs/x)
+   │  │ Subsync plugin          │┼──────────────────┐
+   │  │  - Scheduled sweep task ││                   ▼
+   │  │  - skip/fail-cache      ││        ┌───────────────────────┐
+   │  │  - admin config page    ││        │  subsync-sidecar      │
+   │  └─────────────────────────┘│        │  (own container, runs │
+   └─────────────────────────────┘        │  ffsubsync + ffmpeg)  │
+                                          └───────────────────────┘
 ```
 
 No GPU is required - the default `webrtc` VAD `ffsubsync` uses is CPU-only.
@@ -53,10 +55,14 @@ No GPU is required - the default `webrtc` VAD `ffsubsync` uses is CPU-only.
 - Skip-cache tracks what's already synced (by content hash) so repeat
   sweeps only do new work; stale entries for deleted files are pruned
   automatically.
+- Fail-cache stops retrying a subtitle that fails to sync too many times
+  in a row (configurable, default 3), so a permanently broken file doesn't
+  get reprocessed on every sweep forever. Resets automatically if the
+  file's content changes.
 - On-demand sync of a single movie or episode, without waiting for the
   next scheduled sweep.
-- Cache management from the admin UI: clear the whole skip-cache, or just
-  one item (e.g. after manually replacing a subtitle).
+- Cache management from the admin UI: clear the whole skip-cache and
+  fail-cache, or just one item (e.g. after manually replacing a subtitle).
 - Supports multiple subtitle formats (`.srt`, `.ass`, `.ssa`, `.vtt`,
   `.sub` by default, configurable) and preserves the original format
   rather than converting.
@@ -96,7 +102,7 @@ smoke test are in [Installation](docs/INSTALLATION.md).
 | Doc | Covers |
 | --- | --- |
 | [Installation](docs/INSTALLATION.md) | Full sidecar + plugin setup, config reference, XML example, post-install smoke test |
-| [Configuration](docs/CONFIGURATION.md) | Job timeout vs queue wait timeout budgets |
+| [Configuration](docs/CONFIGURATION.md) | Job timeout vs queue wait timeout budgets, useful `FFSUBSYNC_EXTRA_ARGS` flags |
 | [Known limitations](docs/KNOWN_LIMITATIONS.md) | What the plugin can't do and why |
 | [Breaking changes](docs/BREAKING_CHANGES.md) | Upgrade notes per version |
 | [Development](docs/DEVELOPMENT.md) | Running the plugin/sidecar test suites |

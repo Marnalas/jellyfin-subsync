@@ -8,6 +8,7 @@ namespace Jellyfin.Subsync.Starter.Application;
 internal class SubtitleSyncOrchestrator(
     ISubsyncClient client,
     ISkipCache skipCache,
+    IFailCache failCache,
     ILogger logger,
     IFolderChangeSuppressor suppressor)
 {
@@ -30,21 +31,28 @@ internal class SubtitleSyncOrchestrator(
         CancellationToken cancellationToken)
     {
         // The library row can be stale: the file may have been deleted or
-        // replaced since the last scan. IsAlreadySynced hashes the file and
+        // replaced since the last scan. IsCached hashes the file and
         // throws if it's gone, so this guard is load-bearing.
-        if (!File.Exists(subtitlePath) || skipCache.IsAlreadySynced(subtitlePath))
+        if (!File.Exists(subtitlePath) || skipCache.IsCached(subtitlePath))
             return null;
+
+        if (failCache.IsCached(subtitlePath))
+        {
+            logger.LogDebug("Subsync: skipping {Subtitle} - failed too many times in a row", subtitlePath);
+            return null;
+        }
 
         var referencePath = SubtitleWorkBuilder.ChooseReference(
             subtitlePath,
             group,
-            candidate => File.Exists(candidate) && skipCache.IsAlreadySynced(candidate));
+            candidate => File.Exists(candidate) && skipCache.IsCached(candidate));
 
         var subtitleMapping = SubtitleMatcher.ToSidecarAbsolute(subtitlePath, config);
         var referenceFileMapping = SubtitleMatcher.ToSidecarAbsolute(referencePath, config);
         if (subtitleMapping is null || referenceFileMapping is null)
         {
-            logger.LogWarning("Subsync: {Subtitle} is not under any configured WatchedPathsMaps entry, skipping", subtitlePath);
+            logger.LogWarning("Subsync: {Subtitle} is not under any configured WatchedPathsMaps entry, skipping",
+                subtitlePath);
             return null;
         }
 
@@ -66,8 +74,19 @@ internal class SubtitleSyncOrchestrator(
             // Only a confirmed sync is recorded. A job we timed out on or
             // canceled may still be finishing on the sidecar, and marking it
             // here would pin a hash for content that hasn't been written yet.
-            if (outcome == SyncOutcome.Synced)
-                skipCache.MarkSynced(subtitlePath);
+            // Likewise, only a definite "this file can't be synced" counts
+            // against its failure streak - not a transport/timeout outcome,
+            // which says nothing about the file itself.
+            switch (outcome)
+            {
+                case SyncOutcome.Synced:
+                    skipCache.AddToCache(subtitlePath);
+                    failCache.RemoveForPath(subtitlePath);
+                    break;
+                case SyncOutcome.Failed:
+                    failCache.AddToCache(subtitlePath);
+                    break;
+            }
 
             return outcome;
         }

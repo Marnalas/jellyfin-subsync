@@ -1,4 +1,3 @@
-using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Jellyfin.Subsync.Starter.Infrastructure;
@@ -8,20 +7,21 @@ using Xunit;
 namespace Jellyfin.Subsync.Starter.Tests;
 
 /// <summary>
-/// The skip-cache is what keeps a nightly sweep from re-syncing the whole
-/// library, so the cases that matter are the ones where it could silently
-/// forget something: the MD5-to-SHA-256 migration, batched saves, and
-/// pruning entries for files that only look missing.
+/// The fail-cache is what stops a nightly sweep from re-attempting a file
+/// that never succeeds, so the cases that matter are the ones where it
+/// could either get stuck forever (content changes but the streak doesn't
+/// reset) or never kick in at all (streak resets when it shouldn't, or the
+/// threshold isn't honored).
 /// </summary>
-public sealed class SkipCacheTests : IDisposable
+public sealed class FailCacheTests : IDisposable
 {
     private readonly string _root =
-        Path.Combine(Path.GetTempPath(), "subsync-skipcache-tests", Path.GetRandomFileName());
+        Path.Combine(Path.GetTempPath(), "subsync-failcache-tests", Path.GetRandomFileName());
 
     private readonly string _dataFolder;
     private readonly string _library;
 
-    public SkipCacheTests()
+    public FailCacheTests()
     {
         _dataFolder = Path.Combine(_root, "data");
         _library = Path.Combine(_root, "library");
@@ -41,9 +41,9 @@ public sealed class SkipCacheTests : IDisposable
         }
     }
 
-    private string CachePath => Path.Combine(_dataFolder, "skip-cache.json");
+    private string CachePath => Path.Combine(_dataFolder, "sync-failures.json");
 
-    private SkipCache NewCache() => new(_dataFolder, NullLogger.Instance);
+    private FailCache NewCache(int maxConsecutiveFailures) => new(_dataFolder, maxConsecutiveFailures, NullLogger.Instance);
 
     private string WriteSubtitle(string name, string content = "1\n00:00:01,000 --> 00:00:02,000\nhello\n")
     {
@@ -52,36 +52,81 @@ public sealed class SkipCacheTests : IDisposable
         return path;
     }
 
-    private void WriteRawCache(Dictionary<string, string> entries) =>
-        File.WriteAllText(CachePath, JsonSerializer.Serialize(entries));
+    private sealed record RawEntry(string ContentHash, int ConsecutiveFailures);
 
-    private Dictionary<string, string> ReadRawCache() =>
-        JsonSerializer.Deserialize<Dictionary<string, string>>(File.ReadAllText(CachePath))!;
-
-    private static string LegacyMd5Of(string path) =>
-        Convert.ToHexString(MD5.HashData(File.ReadAllBytes(path)));
+    private Dictionary<string, RawEntry> ReadRawCache() =>
+        JsonSerializer.Deserialize<Dictionary<string, RawEntry>>(File.ReadAllText(CachePath))!;
 
     [Fact]
-    public void MarkedFile_IsSkippedOnceFlushed()
+    public void BelowThreshold_IsNotSkipped()
     {
         var subtitle = WriteSubtitle("a.srt");
 
-        using var cache = NewCache();
-        Assert.False(cache.IsCached(subtitle));
-
+        using var cache = NewCache(3);
         cache.AddToCache(subtitle);
+        cache.AddToCache(subtitle);
+
+        Assert.False(cache.IsCached(subtitle));
+    }
+
+    [Fact]
+    public void AtThreshold_IsSkipped()
+    {
+        var subtitle = WriteSubtitle("a.srt");
+
+        using var cache = NewCache(3);
+        for (var i = 0; i < 3; i++)
+            cache.AddToCache(subtitle);
+
         Assert.True(cache.IsCached(subtitle));
     }
 
     [Fact]
-    public void ChangedContent_IsNotSkipped()
+    public void ZeroThreshold_DisablesTheCheck()
     {
         var subtitle = WriteSubtitle("a.srt");
 
-        using var cache = NewCache();
-        cache.AddToCache(subtitle);
+        using var cache = NewCache(0);
+        for (var i = 0; i < 10; i++)
+            cache.AddToCache(subtitle);
+
+        Assert.False(cache.IsCached(subtitle));
+    }
+
+    /// <summary>
+    /// A file the user has since replaced or fixed must get a fresh
+    /// attempt, not stay skipped because of bytes that no longer exist.
+    /// </summary>
+    [Fact]
+    public void ChangedContent_ResetsTheStreak()
+    {
+        var subtitle = WriteSubtitle("a.srt");
+
+        using var cache = NewCache(3);
+        for (var i = 0; i < 3; i++)
+            cache.AddToCache(subtitle);
+        Assert.True(cache.IsCached(subtitle));
 
         File.WriteAllText(subtitle, "different content entirely");
+
+        Assert.False(cache.IsCached(subtitle));
+
+        cache.AddToCache(subtitle);
+        cache.Flush();
+        Assert.Equal(1, ReadRawCache()[subtitle].ConsecutiveFailures);
+    }
+
+    [Fact]
+    public void ClearFailures_RemovesTheStreak()
+    {
+        var subtitle = WriteSubtitle("a.srt");
+
+        using var cache = NewCache(3);
+        for (var i = 0; i < 3; i++)
+            cache.AddToCache(subtitle);
+
+        cache.RemoveForPath(subtitle);
+
         Assert.False(cache.IsCached(subtitle));
     }
 
@@ -90,76 +135,37 @@ public sealed class SkipCacheTests : IDisposable
     {
         var subtitle = WriteSubtitle("a.srt");
 
-        using (var first = NewCache())
+        using (var first = NewCache(3))
         {
-            first.AddToCache(subtitle);
+            for (var i = 0; i < 3; i++)
+                first.AddToCache(subtitle);
             first.Flush();
         }
 
-        using var second = NewCache();
+        using var second = NewCache(3);
         Assert.True(second.IsCached(subtitle));
     }
 
     [Fact]
-    public void NewEntries_AreWrittenWithTheAlgorithmPrefix()
+    public void Saves_AreBatchedRatherThanOnePerFailure()
     {
-        var subtitle = WriteSubtitle("a.srt");
-
-        using var cache = NewCache();
-        cache.AddToCache(subtitle);
-        cache.Flush();
-
-        Assert.StartsWith("sha256:", ReadRawCache()[subtitle], StringComparison.Ordinal);
-    }
-
-    /// <summary>
-    /// The migration case that matters: an upgrade must not re-sync a
-    /// library that was already fully synced under the old MD5 format.
-    /// </summary>
-    [Fact]
-    public void LegacyMd5Entry_ThatStillMatches_IsHonouredAndUpgradedInPlace()
-    {
-        var subtitle = WriteSubtitle("a.srt");
-        WriteRawCache(new Dictionary<string, string> { [subtitle] = LegacyMd5Of(subtitle) });
-
-        using var cache = NewCache();
-        Assert.True(cache.IsCached(subtitle));
-
-        cache.Flush();
-        Assert.StartsWith("sha256:", ReadRawCache()[subtitle], StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void LegacyMd5Entry_ForChangedContent_IsNotSkipped()
-    {
-        var subtitle = WriteSubtitle("a.srt");
-        WriteRawCache(new Dictionary<string, string> { [subtitle] = LegacyMd5Of(subtitle) });
-        File.WriteAllText(subtitle, "the file changed after it was recorded");
-
-        using var cache = NewCache();
-        Assert.False(cache.IsCached(subtitle));
-    }
-
-    [Fact]
-    public void Saves_AreBatchedRatherThanOnePerMark()
-    {
-        using var cache = NewCache();
+        using var cache = NewCache(3);
 
         for (var i = 0; i < 5; i++)
             cache.AddToCache(WriteSubtitle($"batch{i}.srt", $"content {i}"));
 
-        Assert.False(File.Exists(CachePath), "a handful of marks should not have rewritten the cache file yet");
+        Assert.False(File.Exists(CachePath), "a handful of failures should not have rewritten the cache file yet");
 
         cache.Flush();
         Assert.Equal(5, ReadRawCache().Count);
     }
 
     [Fact]
-    public void Dispose_FlushesPendingMarks()
+    public void Dispose_FlushesPendingFailures()
     {
         var subtitle = WriteSubtitle("a.srt");
 
-        using (var cache = NewCache())
+        using (var cache = NewCache(3))
             cache.AddToCache(subtitle);
 
         Assert.True(File.Exists(CachePath));
@@ -173,7 +179,7 @@ public sealed class SkipCacheTests : IDisposable
             { WriteSubtitle("keep1.srt", "1"), WriteSubtitle("keep2.srt", "2"), WriteSubtitle("keep3.srt", "3") };
         var deleted = WriteSubtitle("gone.srt", "4");
 
-        using var cache = NewCache();
+        using var cache = NewCache(3);
         foreach (var path in kept.Append(deleted))
             cache.AddToCache(path);
 
@@ -188,9 +194,8 @@ public sealed class SkipCacheTests : IDisposable
     }
 
     /// <summary>
-    /// An unmounted volume looks exactly like a deleted library. Pruning it
-    /// would throw away the whole cache and re-sync everything on the next
-    /// sweep, so a missing directory means "leave it alone".
+    /// Same mount-outage guard as SkipCache: an unmounted volume must not
+    /// be read as a wholesale deletion of everything tracked under it.
     /// </summary>
     [Fact]
     public void RemoveMissingFiles_KeepsEntriesWhoseWholeDirectoryIsGone()
@@ -202,7 +207,7 @@ public sealed class SkipCacheTests : IDisposable
 
         var kept = new[] { WriteSubtitle("keep1.srt", "1"), WriteSubtitle("keep2.srt", "2") };
 
-        using var cache = NewCache();
+        using var cache = NewCache(3);
         cache.AddToCache(vanished);
         foreach (var path in kept)
             cache.AddToCache(path);
@@ -223,7 +228,7 @@ public sealed class SkipCacheTests : IDisposable
             WriteSubtitle("c.srt", "3"), WriteSubtitle("d.srt", "4")
         };
 
-        using var cache = NewCache();
+        using var cache = NewCache(3);
         foreach (var path in paths)
             cache.AddToCache(path);
         cache.Flush();
@@ -241,7 +246,7 @@ public sealed class SkipCacheTests : IDisposable
         File.WriteAllText(CachePath, "{ this is not json", Encoding.UTF8);
         var subtitle = WriteSubtitle("a.srt");
 
-        using var cache = NewCache();
+        using var cache = NewCache(1);
         Assert.False(cache.IsCached(subtitle));
     }
 
@@ -250,7 +255,7 @@ public sealed class SkipCacheTests : IDisposable
     {
         var paths = new[] { WriteSubtitle("a.srt", "1"), WriteSubtitle("b.srt", "2") };
 
-        using var cache = NewCache();
+        using var cache = NewCache(1);
         foreach (var path in paths)
             cache.AddToCache(path);
 
@@ -262,7 +267,7 @@ public sealed class SkipCacheTests : IDisposable
     [Fact]
     public void Clear_OnAnEmptyCache_IsANoOp()
     {
-        using var cache = NewCache();
+        using var cache = NewCache(3);
         Assert.Equal(0, cache.Clear());
         Assert.False(File.Exists(CachePath));
     }
@@ -273,7 +278,7 @@ public sealed class SkipCacheTests : IDisposable
         var kept = WriteSubtitle("keep.srt", "1");
         var removed = WriteSubtitle("remove.srt", "2");
 
-        using var cache = NewCache();
+        using var cache = NewCache(1);
         cache.AddToCache(kept);
         cache.AddToCache(removed);
 
@@ -290,7 +295,7 @@ public sealed class SkipCacheTests : IDisposable
     {
         var kept = WriteSubtitle("keep.srt", "1");
 
-        using var cache = NewCache();
+        using var cache = NewCache(3);
         cache.AddToCache(kept);
         cache.Flush();
 

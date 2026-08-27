@@ -21,12 +21,13 @@ public class SyncLibrarySweepTask(
     ILogger<SyncLibrarySweepTask> logger,
     ISubsyncClient client,
     ISkipCache skipCache,
+    IFailCache failCache,
     IPluginConfigurationProvider configurationProvider,
     ILibraryManager libraryManager,
     IMediaSourceManager mediaSourceManager,
     IFolderChangeSuppressor suppressor) : IScheduledTask
 {
-    private readonly SubtitleSyncOrchestrator _orchestrator = new(client, skipCache, logger, suppressor);
+    private readonly SubtitleSyncOrchestrator _orchestrator = new(client, skipCache, failCache, logger, suppressor);
     private readonly LibrarySubtitleSource _source = new(libraryManager, mediaSourceManager, logger);
 
     public string Name => "Sync unsynced subtitles";
@@ -127,6 +128,7 @@ public class SyncLibrarySweepTask(
             // including on a canceled run, where everything already synced
             // still deserves to be skipped next time.
             skipCache.Flush();
+            failCache.Flush();
         }
 
         // After the sweep, never before it: by now the mounts have
@@ -140,6 +142,15 @@ public class SyncLibrarySweepTask(
             logger.LogInformation(
                 "Subsync sweep: dropped {Count} skip-cache entr(ies) for files that no longer exist", removed);
             skipCache.Flush();
+        }
+
+        var removedFailures = failCache.RemoveMissingFiles();
+        if (removedFailures > 0)
+        {
+            logger.LogInformation(
+                "Subsync sweep: dropped {Count} fail-cache entr(ies) for files that no longer exist",
+                removedFailures);
+            failCache.Flush();
         }
 
         logger.LogInformation("Subsync sweep: checked the library, {Count} subtitle(s) touched", processed);

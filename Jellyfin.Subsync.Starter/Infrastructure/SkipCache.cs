@@ -107,7 +107,7 @@ public class SkipCache : ISkipCache
     }
 
     /// <summary>Returns true if this exact file content has already been synced.</summary>
-    public bool IsAlreadySynced(string subtitlePath)
+    public bool IsCached(string subtitlePath)
     {
         string? known;
         lock (_lock)
@@ -145,7 +145,7 @@ public class SkipCache : ISkipCache
     }
 
     /// <summary>Records the current content of the subtitle file as "synced".</summary>
-    public void MarkSynced(string subtitlePath)
+    public void AddToCache(string subtitlePath)
     {
         var value = Sha256Prefix + HashHex(subtitlePath, HashAlgorithmName.SHA256);
 
@@ -161,7 +161,7 @@ public class SkipCache : ISkipCache
             Flush();
     }
 
-    /// <summary>Persists whatever MarkSynced has batched up.</summary>
+    /// <summary>Persists whatever AddToCache has batched up.</summary>
     public void Flush()
     {
         lock (_lock)
@@ -222,7 +222,7 @@ public class SkipCache : ISkipCache
     }
 
     /// <summary>
-    /// Persists immediately rather than through the batched MarkSynced path -
+    /// Persists immediately rather than through the batched AddToCache path -
     /// this is a rare, interactive admin action, not sweep hot-path, so there's
     /// no write-amplification concern to batch against.
     /// </summary>
@@ -239,6 +239,17 @@ public class SkipCache : ISkipCache
             _pendingWrites = 0;
             _lastSaveUtc = DateTime.UtcNow;
             return count;
+        }
+    }
+
+    public void RemoveForPath(string subtitlePath)
+    {
+        lock (_lock)
+        {
+            if (!_hashes.Remove(subtitlePath))
+                return;
+
+            _pendingWrites++;
         }
     }
 

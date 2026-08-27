@@ -165,6 +165,10 @@ export default function (view) {
             byId('QueueWaitTimeoutSeconds').value =
                 typeof config.QueueWaitTimeoutSeconds === 'number' ? config.QueueWaitTimeoutSeconds : 3600;
             byId('SidecarRequestTimeoutSeconds').value = config.SidecarRequestTimeoutSeconds || 30;
+            // Not `|| 3`: 0 is a legitimate value here (always retry) and
+            // would otherwise be shown as the default.
+            byId('MaxConsecutiveFailures').value =
+                typeof config.MaxConsecutiveFailures === 'number' ? config.MaxConsecutiveFailures : 3;
 
             const effectiveMappings = (config.LibraryPathMappings && config.LibraryPathMappings.length > 0)
                 ? config.LibraryPathMappings
@@ -193,6 +197,9 @@ export default function (view) {
             config.QueueWaitTimeoutSeconds = getIntValue('QueueWaitTimeoutSeconds', 3600, 0);
             config.SidecarRequestTimeoutSeconds = getIntValue('SidecarRequestTimeoutSeconds', 30, 1);
             config.MaxParallelJobs = parseInt(byId('MaxParallelJobs').value, 10) || 1;
+            // Same reason as QueueWaitTimeoutSeconds: a deliberate 0
+            // ("always retry") must not be replaced with the fallback.
+            config.MaxConsecutiveFailures = getIntValue('MaxConsecutiveFailures', 3, 0);
 
             ApiClient.updatePluginConfiguration(pluginId, config).then(function (result) {
                 Dashboard.processPluginConfigurationUpdateResult(result);
