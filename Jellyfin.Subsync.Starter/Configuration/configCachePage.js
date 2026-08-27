@@ -104,8 +104,9 @@ export default function (view) {
             url: ApiClient.getUrl('Subsync/SkipCache/Items/' + itemId),
             dataType: 'json'
         }).then(function (result) {
-            action.textContent = result.removed > 0
-                ? 'Cleared ' + result.removed
+            const total = result.removed + result.removedFailures;
+            action.textContent = total > 0
+                ? 'Cleared ' + total
                 : 'Nothing cached for this item';
         }).catch(function () {
             button.disabled = false;
@@ -128,8 +129,9 @@ export default function (view) {
             dataType: 'json'
         }).then(function (result) {
             button.disabled = false;
-            status.textContent = result.removed > 0
-                ? 'Cleared ' + result.removed + ' cached result(s).'
+            const total = result.removed + result.removedFailures;
+            status.textContent = total > 0
+                ? 'Cleared ' + total + ' cached result(s).'
                 : 'Cache was already empty.';
         }).catch(function () {
             button.disabled = false;

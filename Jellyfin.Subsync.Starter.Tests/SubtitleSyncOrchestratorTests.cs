@@ -10,7 +10,7 @@ namespace Jellyfin.Subsync.Starter.Tests;
 /// <summary>
 /// The orchestrator decides what gets submitted and what gets recorded as
 /// synced. Recording something that wasn't actually written is what makes a
-/// subtitle silently stay out of sync forever, so the outcome-to-MarkSynced
+/// subtitle silently stay out of sync forever, so the outcome-to-AddToCache
 /// mapping is the part worth pinning.
 /// </summary>
 public sealed class SubtitleSyncOrchestratorTests : IDisposable
@@ -69,9 +69,9 @@ public sealed class SubtitleSyncOrchestratorTests : IDisposable
         public HashSet<string> Synced { get; } = [];
         public List<string> Marked { get; } = [];
 
-        public bool IsAlreadySynced(string subtitlePath) => Synced.Contains(subtitlePath);
+        public bool IsCached(string subtitlePath) => Synced.Contains(subtitlePath);
 
-        public void MarkSynced(string subtitlePath)
+        public void AddToCache(string subtitlePath)
         {
             Marked.Add(subtitlePath);
             Synced.Add(subtitlePath);
@@ -85,6 +85,35 @@ public sealed class SubtitleSyncOrchestratorTests : IDisposable
 
         public int Clear() => 0;
 
+        public void RemoveForPath(string subtitlePath) => Marked.Add(subtitlePath);
+
+        public int RemoveForPaths(IEnumerable<string> subtitlePaths) => 0;
+
+        public void Dispose()
+        {
+        }
+    }
+
+    private sealed class FakeFailCache : IFailCache
+    {
+        public HashSet<string> Skipped { get; } = [];
+        public List<string> RecordedFailures { get; } = [];
+        public List<string> ClearedFailures { get; } = [];
+
+        public bool IsCached(string subtitlePath) => Skipped.Contains(subtitlePath);
+
+        public void AddToCache(string subtitlePath) => RecordedFailures.Add(subtitlePath);
+
+
+        public void Flush()
+        {
+        }
+
+        public int RemoveMissingFiles() => 0;
+
+        public int Clear() => 0;
+
+        public void RemoveForPath(string subtitlePath) => ClearedFailures.Add(subtitlePath);
         public int RemoveForPaths(IEnumerable<string> subtitlePaths) => 0;
 
         public void Dispose()
@@ -120,7 +149,8 @@ public sealed class SubtitleSyncOrchestratorTests : IDisposable
         var subtitle = Write("Movie.en.srt");
         var client = new FakeSubsyncClient(outcome);
         var skipCache = new FakeSkipCache();
-        var orchestrator = new SubtitleSyncOrchestrator(client, skipCache, NullLogger.Instance,
+        var failCache = new FakeFailCache();
+        var orchestrator = new SubtitleSyncOrchestrator(client, skipCache, failCache, NullLogger.Instance,
             new FakeFolderChangeSuppressor());
 
         var result = await orchestrator.ProcessAsync(
@@ -128,7 +158,9 @@ public sealed class SubtitleSyncOrchestratorTests : IDisposable
 
         Assert.Equal(outcome, result);
         Assert.Single(client.Calls);
-        Assert.Equal(expectMarked ? [subtitle] : (List<string>)[], skipCache.Marked);
+        Assert.Equal(expectMarked ? [subtitle] : [], skipCache.Marked);
+        Assert.Equal(outcome == SyncOutcome.Synced ? [subtitle] : [], failCache.ClearedFailures);
+        Assert.Equal(outcome == SyncOutcome.Failed ? [subtitle] : [], failCache.RecordedFailures);
     }
 
     [Fact]
@@ -139,7 +171,25 @@ public sealed class SubtitleSyncOrchestratorTests : IDisposable
         var client = new FakeSubsyncClient(SyncOutcome.Synced);
         var skipCache = new FakeSkipCache();
         skipCache.Synced.Add(subtitle);
-        var orchestrator = new SubtitleSyncOrchestrator(client, skipCache, NullLogger.Instance,
+        var orchestrator = new SubtitleSyncOrchestrator(client, skipCache, new FakeFailCache(), NullLogger.Instance,
+            new FakeFolderChangeSuppressor());
+
+        var result = await orchestrator.ProcessAsync(
+            Config(), new SubtitleSyncGroup(video, [subtitle]), subtitle, CancellationToken.None);
+
+        Assert.Null(result);
+        Assert.Empty(client.Calls);
+    }
+
+    [Fact]
+    public async Task FileWithTooManyConsecutiveFailures_IsNotSubmitted()
+    {
+        var video = Write("Movie.mkv");
+        var subtitle = Write("Movie.en.srt");
+        var client = new FakeSubsyncClient(SyncOutcome.Synced);
+        var failCache = new FakeFailCache();
+        failCache.Skipped.Add(subtitle);
+        var orchestrator = new SubtitleSyncOrchestrator(client, new FakeSkipCache(), failCache, NullLogger.Instance,
             new FakeFolderChangeSuppressor());
 
         var result = await orchestrator.ProcessAsync(
@@ -155,8 +205,8 @@ public sealed class SubtitleSyncOrchestratorTests : IDisposable
         var video = Write("Movie.mkv");
         var subtitle = Path.Combine(_library, "never-existed.srt");
         var client = new FakeSubsyncClient(SyncOutcome.Synced);
-        var orchestrator = new SubtitleSyncOrchestrator(client, new FakeSkipCache(), NullLogger.Instance,
-            new FakeFolderChangeSuppressor());
+        var orchestrator = new SubtitleSyncOrchestrator(client, new FakeSkipCache(), new FakeFailCache(),
+            NullLogger.Instance, new FakeFolderChangeSuppressor());
 
         var result = await orchestrator.ProcessAsync(
             Config(), new SubtitleSyncGroup(video, [subtitle]), subtitle, CancellationToken.None);
@@ -171,8 +221,8 @@ public sealed class SubtitleSyncOrchestratorTests : IDisposable
         var video = Write("Movie.mkv");
         var subtitle = Write("Movie.en.srt");
         var client = new FakeSubsyncClient(SyncOutcome.Synced);
-        var orchestrator = new SubtitleSyncOrchestrator(client, new FakeSkipCache(), NullLogger.Instance,
-            new FakeFolderChangeSuppressor());
+        var orchestrator = new SubtitleSyncOrchestrator(client, new FakeSkipCache(), new FakeFailCache(),
+            NullLogger.Instance, new FakeFolderChangeSuppressor());
 
         var result = await orchestrator.ProcessAsync(
             Config(mapped: false), new SubtitleSyncGroup(video, [subtitle]), subtitle, CancellationToken.None);
@@ -187,8 +237,8 @@ public sealed class SubtitleSyncOrchestratorTests : IDisposable
         var video = Write("Movie.mkv");
         var subtitle = Write("Movie.en.srt");
         var client = new FakeSubsyncClient(SyncOutcome.Synced);
-        var orchestrator = new SubtitleSyncOrchestrator(client, new FakeSkipCache(), NullLogger.Instance,
-            new FakeFolderChangeSuppressor());
+        var orchestrator = new SubtitleSyncOrchestrator(client, new FakeSkipCache(), new FakeFailCache(),
+            NullLogger.Instance, new FakeFolderChangeSuppressor());
 
         await orchestrator.ProcessAsync(
             Config(), new SubtitleSyncGroup(video, [subtitle]), subtitle, CancellationToken.None);
@@ -213,7 +263,7 @@ public sealed class SubtitleSyncOrchestratorTests : IDisposable
         var client = new FakeSubsyncClient(SyncOutcome.Synced);
         var skipCache = new FakeSkipCache();
         skipCache.Synced.Add(synced);
-        var orchestrator = new SubtitleSyncOrchestrator(client, skipCache, NullLogger.Instance,
+        var orchestrator = new SubtitleSyncOrchestrator(client, skipCache, new FakeFailCache(), NullLogger.Instance,
             new FakeFolderChangeSuppressor());
 
         await orchestrator.ProcessAsync(
@@ -237,8 +287,8 @@ public sealed class SubtitleSyncOrchestratorTests : IDisposable
         var subtitle = Write("Movie.en.srt");
         var suppressor = new FakeFolderChangeSuppressor();
         var client = new SuppressionObservingSubsyncClient(suppressor);
-        var orchestrator =
-            new SubtitleSyncOrchestrator(client, new FakeSkipCache(), NullLogger.Instance, suppressor);
+        var orchestrator = new SubtitleSyncOrchestrator(client, new FakeSkipCache(), new FakeFailCache(),
+            NullLogger.Instance, suppressor);
 
         await orchestrator.ProcessAsync(
             Config(), new SubtitleSyncGroup(video, [subtitle]), subtitle, CancellationToken.None);
@@ -258,7 +308,7 @@ public sealed class SubtitleSyncOrchestratorTests : IDisposable
         var subtitle = Write("Movie.en.srt");
         var suppressor = new FakeFolderChangeSuppressor();
         var orchestrator = new SubtitleSyncOrchestrator(
-            new ThrowingSubsyncClient(), new FakeSkipCache(), NullLogger.Instance, suppressor);
+            new ThrowingSubsyncClient(), new FakeSkipCache(), new FakeFailCache(), NullLogger.Instance, suppressor);
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => orchestrator.ProcessAsync(
             Config(), new SubtitleSyncGroup(video, [subtitle]), subtitle, CancellationToken.None));

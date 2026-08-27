@@ -30,6 +30,7 @@ namespace Jellyfin.Subsync.Starter.Api;
 [Route("Subsync/Sync")]
 public class SyncController(
     ISkipCache skipCache,
+    IFailCache failCache,
     ISubsyncClient client,
     IFolderChangeSuppressor suppressor,
     IPluginConfigurationProvider configurationProvider,
@@ -90,7 +91,9 @@ public class SyncController(
                 statusCode: StatusCodes.Status500InternalServerError);
         }
 
-        var cleared = skipCache.RemoveForPaths(SubtitleMatcher.GetExternalSubtitlePaths(subtitleStreams));
+        var externalSubtitlePaths = SubtitleMatcher.GetExternalSubtitlePaths(subtitleStreams).ToList();
+        var cleared = skipCache.RemoveForPaths(externalSubtitlePaths);
+        failCache.RemoveForPaths(externalSubtitlePaths);
         logger.LogInformation(
             "Subsync sync: cleared {Count} skip-cache entr(ies) for {Item} before syncing", cleared, item.Name);
 
@@ -122,7 +125,7 @@ public class SyncController(
         if (work.Group is null)
             return Ok(new { cleared, reason = work.Reason.ToString(), results = Array.Empty<object>() });
 
-        var orchestrator = new SubtitleSyncOrchestrator(client, skipCache, logger, suppressor);
+        var orchestrator = new SubtitleSyncOrchestrator(client, skipCache, failCache, logger, suppressor);
         var results = new List<object>();
 
         try
@@ -156,6 +159,7 @@ public class SyncController(
             // only point that guarantees any marks from the loop above
             // (including a partially-completed one) reach disk.
             skipCache.Flush();
+            failCache.Flush();
         }
 
         return Ok(new { cleared, reason = work.Reason.ToString(), results });

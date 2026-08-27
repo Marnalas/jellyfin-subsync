@@ -96,6 +96,22 @@
                     </div>
                 </div>
 
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="MaxConsecutiveFailures">
+                        Max consecutive failures: <span id="MaxConsecutiveFailuresValue">1</span>
+                    </label>
+                    <input is="emby-input" type="number" id="MaxConsecutiveFailures" min="0" />
+                    <div class="fieldDescription">
+                        How many times in a row a subtitle's current content may fail to sync before the
+                        sweep stops retrying it automatically. Default is 3. Set to 0 to always retry. A
+                        subtitle's failure count resets on its own if the file's content changes, or can be
+                        reset manually from the "Cache" tab.
+                        <br /><br />
+                        <strong>Changing this value takes effect after the Jellyfin server is restarted</strong> -
+                        it's read once when the server starts, not on every sweep.
+                    </div>
+                </div>
+
                 <div>
                     <button is="emby-button" type="submit" class="raised button-submit block">
                         <span>Save</span>

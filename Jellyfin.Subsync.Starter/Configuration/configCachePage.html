@@ -8,8 +8,9 @@
                 <div class="verticalSection">
                     <h2>Subsync cache</h2>
                     <p>
-                        Subsync skips a subtitle it has already synced, so repeat sweeps don't redo the same work.
-                        Use this page to make it forget - either everything, or just what it knows about one item.
+                        Subsync skips a subtitle it has already synced, and stops retrying one that keeps
+                        failing, so repeat sweeps don't redo the same work. Use this page to make it forget
+                        both - either everything, or just what it knows about one item.
                     </p>
                 </div>
 
@@ -30,10 +31,12 @@
                 <div class="verticalSection">
                     <h3>Clear one item</h3>
                     <div class="inputContainer">
-                        <input is="emby-input" type="text" id="ItemSearch" label="Search for a movie or episode" />
+                        <label class="inputLabel inputLabelUnfocused" for="ItemSearch">Search for a movie or episode</label>
+                        <input is="emby-input" type="text" id="ItemSearch" />
                         <div class="fieldDescription">
                             Find the item, then clear just its cached subtitles - useful after manually fixing a
-                            subtitle so it gets re-synced instead of being skipped as already synced.
+                            subtitle so it gets re-synced instead of being skipped as already synced or as
+                            stuck failing.
                         </div>
                         <div id="ItemSearchResults"></div>
                     </div>

@@ -75,4 +75,13 @@ public class PluginConfiguration : BasePluginConfiguration
     /// the extra submissions and runs them one at a time anyway.
     /// </summary>
     public int MaxParallelJobs { get; set; } = 1;
+
+    /// <summary>
+    /// How many consecutive failed sync attempts a subtitle's current
+    /// content may accumulate before the sweep stops retrying it
+    /// automatically. 0 disables the check (always retry). Resets if the
+    /// subtitle file's content changes, or via the "Clear cache" admin
+    /// action.
+    /// </summary>
+    public int MaxConsecutiveFailures { get; set; } = 3;
 }

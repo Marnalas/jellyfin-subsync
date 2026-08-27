@@ -9,8 +9,10 @@ using Microsoft.Extensions.Logging;
 namespace Jellyfin.Subsync.Starter.Api;
 
 /// <summary>
-/// Lets an admin erase skip-cache entries from the "Cache" dashboard tab -
-/// either everything, or just what's tracked for one library item.
+/// Lets an admin erase skip-cache and fail-cache entries from the "Cache"
+/// dashboard tab - either everything, or just what's tracked for one
+/// library item. Clearing both together means "evaluate this completely
+/// fresh": forget that it's already synced, and forget any failure streak.
 /// </summary>
 [Authorize(Policy = Policies.RequiresElevation)]
 [ApiController]
@@ -18,6 +20,7 @@ namespace Jellyfin.Subsync.Starter.Api;
 [Route("Subsync/SkipCache")]
 public class SkipCacheController(
     ISkipCache skipCache,
+    IFailCache failCache,
     ILibraryManager libraryManager,
     IMediaSourceManager mediaSourceManager,
     ILogger<SkipCacheController> logger) : ControllerBase
@@ -26,8 +29,11 @@ public class SkipCacheController(
     public ActionResult<object> ClearAll()
     {
         var removed = skipCache.Clear();
-        logger.LogInformation("Subsync cache: cleared {Count} skip-cache entr(ies)", removed);
-        return Ok(new { removed });
+        var removedFailures = failCache.Clear();
+        logger.LogInformation(
+            "Subsync cache: cleared {Count} skip-cache and {FailureCount} fail-cache entr(ies)",
+            removed, removedFailures);
+        return Ok(new { removed, removedFailures });
     }
 
     /// <summary>
@@ -43,9 +49,12 @@ public class SkipCacheController(
         if (item is null)
             return NotFound();
 
-        var paths = SubtitleMatcher.GetExternalSubtitlePaths(item, mediaSourceManager);
+        var paths = SubtitleMatcher.GetExternalSubtitlePaths(item, mediaSourceManager).ToList();
         var removed = skipCache.RemoveForPaths(paths);
-        logger.LogInformation("Subsync cache: cleared {Count} skip-cache entr(ies) for {Item}", removed, item.Name);
-        return Ok(new { removed });
+        var removedFailures = failCache.RemoveForPaths(paths);
+        logger.LogInformation(
+            "Subsync cache: cleared {Count} skip-cache and {FailureCount} fail-cache entr(ies) for {Item}",
+            removed, removedFailures, item.Name);
+        return Ok(new { removed, removedFailures });
     }
 }
