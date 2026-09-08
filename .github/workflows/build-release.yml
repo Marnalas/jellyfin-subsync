@@ -302,7 +302,10 @@ jobs:
       - name: Generate changelog
         id: changelog
         run: |
-          LAST_TAG=$(git tag -l 'v*' --sort=-v:refname | head -1)
+          # --merged HEAD keeps this to tags that are ancestors of the commit
+          # being released, so a 10.11 release diffs against the previous 10.11
+          # tag rather than a higher-versioned `v*` tag that only lives on main.
+          LAST_TAG=$(git tag -l 'v*' --sort=-v:refname --merged HEAD | head -1)
           RANGE="${LAST_TAG:+${LAST_TAG}..}HEAD"
           {
             echo "changelog<<EOF"
@@ -447,6 +450,11 @@ jobs:
           tag_name: ${{ needs.check-version.outputs.tag }}
           name: ${{ needs.channel.outputs.is_test == 'true' && format('Subsync {0} ({1})', needs.check-version.outputs.tag, github.ref_name) || format('Subsync {0}', needs.check-version.outputs.tag) }}
           prerelease: ${{ needs.channel.outputs.is_test }}
+          # Only the ongoing Jellyfin 12 line claims the repo's "Latest release"
+          # badge. A 10.11 hotfix carries a lower version than main's current
+          # release, but softprops/action-gh-release defaults make_latest to true,
+          # which would otherwise flip the badge to the hotfix.
+          make_latest: ${{ needs.channel.outputs.target_abi == '12.0.0.0' }}
           files: |
             SubsyncStarter_${{ needs.check-version.outputs.version }}.zip
           generate_release_notes: true
