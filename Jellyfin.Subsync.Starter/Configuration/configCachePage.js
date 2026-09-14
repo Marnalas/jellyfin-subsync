@@ -2,6 +2,7 @@
 
 const SEARCH_DEBOUNCE_MS = 300;
 const SEARCH_LIMIT = 15;
+const SERIES_MATCH_LIMIT = 5;
 
 const htmlEscapes = {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'};
 
@@ -93,41 +94,56 @@ export default function (view) {
             return;
         }
 
-        // Items' own searchTerm only matches an item's own name, so an
-        // episode never matches a search for its show. Search/Hints is
-        // built for exactly this - each hint carries the matched item's
-        // series, if any - but it doesn't carry Path, so the hits are
-        // batch-resolved to full items (one extra call, not one per item)
-        // and re-ordered back to the hints' own relevance order.
-        ApiClient.ajax({
-            type: 'GET',
-            url: ApiClient.getUrl('Search/Hints', {
-                searchTerm: term,
-                includeItemTypes: 'Movie,Episode,Video,MusicVideo,Trailer',
-                limit: SEARCH_LIMIT
-            }),
-            dataType: 'json'
-        }).then(function (result) {
-            const hints = result.SearchHints || [];
-            if (hints.length === 0) {
-                renderResults([]);
-                return;
-            }
+        const userId = ApiClient.getCurrentUserId();
 
-            ApiClient.getItems(ApiClient.getCurrentUserId(), {
-                ids: hints.map(function (h) {
-                    return h.ItemId || h.Id;
-                }).join(','),
-                fields: 'Path'
-            }).then(function (full) {
-                const itemsById = {};
-                (full.Items || []).forEach(function (item) {
-                    itemsById[item.Id] = item;
+        // Items' own searchTerm only matches an item's own name/title
+        // (verified against Jellyfin's SqlSearchProvider source - it only
+        // queries CleanName/OriginalTitle, never a parent's), so an episode
+        // never matches a search for its show's name. There's no single
+        // query for that: separately find series whose name matches, then
+        // pull in every episode under each (a recursive query scoped to
+        // that series' own id), merged with the direct name-based hits.
+        const directMatch = ApiClient.getItems(userId, {
+            searchTerm: term,
+            includeItemTypes: 'Movie,Episode,Video,MusicVideo,Trailer',
+            recursive: true,
+            limit: SEARCH_LIMIT,
+            fields: 'Path'
+        }).then(function (result) {
+            return result.Items || [];
+        });
+
+        const seriesMatch = ApiClient.getItems(userId, {
+            searchTerm: term,
+            includeItemTypes: 'Series',
+            recursive: true,
+            limit: SERIES_MATCH_LIMIT
+        }).then(function (result) {
+            const series = result.Items || [];
+            return Promise.all(series.map(function (s) {
+                return ApiClient.getItems(userId, {
+                    parentId: s.Id,
+                    includeItemTypes: 'Episode',
+                    recursive: true,
+                    limit: SEARCH_LIMIT,
+                    fields: 'Path'
+                }).then(function (episodes) {
+                    return episodes.Items || [];
                 });
-                renderResults(hints.map(function (h) {
-                    return itemsById[h.ItemId || h.Id];
-                }).filter(Boolean));
+            }));
+        }).then(function (episodesPerSeries) {
+            return [].concat.apply([], episodesPerSeries);
+        });
+
+        Promise.all([directMatch, seriesMatch]).then(function (results) {
+            const seen = {};
+            const merged = [];
+            results[0].concat(results[1]).forEach(function (item) {
+                if (seen[item.Id]) return;
+                seen[item.Id] = true;
+                merged.push(item);
             });
+            renderResults(merged.slice(0, SEARCH_LIMIT));
         });
     }
 
