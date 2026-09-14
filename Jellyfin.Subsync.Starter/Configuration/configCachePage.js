@@ -35,7 +35,9 @@ function itemSubtitle(item) {
 function buildResultRowHtml(item) {
     const subtitle = itemSubtitle(item);
     return '' +
-        '<div class="inputContainer itemResultRow" data-item-id="' + escapeHtml(item.Id) + '" style="display:flex;align-items:center;justify-content:space-between;gap:1em;">' +
+        '<div class="inputContainer itemResultRow" data-item-id="' + escapeHtml(item.Id) + '" ' +
+        'style="display:flex;align-items:center;justify-content:space-between;gap:1em;' +
+        'border-bottom:1px solid rgba(128,128,128,.25);padding-bottom:0.75em;margin-bottom:0.75em;">' +
         '<div style="min-width:0;">' +
         '<div class="itemResultName">' + escapeHtml(item.Name) + '</div>' +
         (subtitle ? '<div class="fieldDescription itemResultSubtitle">' + escapeHtml(subtitle) + '</div>' : '') +

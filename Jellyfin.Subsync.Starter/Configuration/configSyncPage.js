@@ -35,7 +35,8 @@ function itemSubtitle(item) {
 function buildResultRowHtml(item) {
     const subtitle = itemSubtitle(item);
     return '' +
-        '<div class="inputContainer itemResultRow" data-item-id="' + escapeHtml(item.Id) + '">' +
+        '<div class="inputContainer itemResultRow" data-item-id="' + escapeHtml(item.Id) + '" ' +
+        'style="border-bottom:1px solid rgba(128,128,128,.25);padding-bottom:0.75em;margin-bottom:0.75em;">' +
         '<div style="display:flex;align-items:center;justify-content:space-between;gap:1em;">' +
         '<div style="min-width:0;">' +
         '<div class="itemResultName">' + escapeHtml(item.Name) + '</div>' +
@@ -47,7 +48,7 @@ function buildResultRowHtml(item) {
         '<button is="emby-button" type="button" class="raised syncItemButton">' +
         '<span>Sync</span>' +
         '</button>' +
-        '<button type="button" class="button-link syncOneToggle">' +
+        '<button is="emby-button" type="button" class="raised syncOneToggle">' +
         '<span>Sync one subtitle…</span>' +
         '</button>' +
         '</div>' +

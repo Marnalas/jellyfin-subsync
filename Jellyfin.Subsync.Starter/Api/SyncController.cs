@@ -173,7 +173,24 @@ public class SyncController(
             ? []
             : SubtitleWorkBuilder.BuildCandidateList(work.Group, subtitleStreams, skipCache.IsCached);
 
-        return Ok(new { reason = work.Reason.ToString(), subtitles = candidates });
+        // Projected to lowercase-first keys, matching every other response
+        // this controller hands back - SubtitleCandidate's own PascalCase
+        // properties would otherwise reach the client as-is (Jellyfin's JSON
+        // pipeline preserves declared casing, it doesn't camelCase it), and
+        // the frontend picker reads lowercase keys.
+        return Ok(new
+        {
+            reason = work.Reason.ToString(),
+            subtitles = candidates.Select(c => new
+            {
+                index = c.Index,
+                path = c.Path,
+                language = c.Language,
+                title = c.Title,
+                isForced = c.IsForced,
+                isAlreadySynced = c.IsAlreadySynced
+            })
+        });
     }
 
     /// <summary>
