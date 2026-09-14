@@ -49,9 +49,11 @@ public class SyncController(
     /// <see cref="SyncItemRequest.ReferenceSubtitleIndex"/> if given, else
     /// the video - see <see cref="SyncOneAsync"/>.
     /// </remarks>
-    [HttpPost("Items/{itemId:guid}")]
+    [HttpPost("{itemId:guid}")]
     public async Task<ActionResult<object>> SyncItem(
-        Guid itemId, [FromBody] SyncItemRequest? request, CancellationToken cancellationToken)
+        Guid itemId,
+        [FromBody] SyncItemRequest? request,
+        CancellationToken cancellationToken)
     {
         // The sweep and this endpoint share no lock over the actual sync
         // call, only over the skip-cache bookkeeping around it - two
@@ -140,7 +142,7 @@ public class SyncController(
     /// doesn't check <see cref="IsSweepRunning"/> or the sidecar's health;
     /// it's safe to call at any time, including mid-sweep.
     /// </summary>
-    [HttpGet("Items/{itemId:guid}/Subtitles")]
+    [HttpGet("{itemId:guid}/Subtitles")]
     public ActionResult<object> GetSubtitles(Guid itemId)
     {
         var item = libraryManager.GetItemById(itemId);

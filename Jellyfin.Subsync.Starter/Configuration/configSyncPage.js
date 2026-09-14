@@ -169,7 +169,7 @@ export default function (view) {
 
         ApiClient.ajax({
             type: 'POST',
-            url: ApiClient.getUrl('Subsync/Sync/Items/' + itemId),
+            url: ApiClient.getUrl('Subsync/Sync/' + itemId),
             dataType: 'json'
         }).then(function (result) {
             button.disabled = false;
@@ -185,7 +185,7 @@ export default function (view) {
     function fetchSubtitleCandidates(itemId) {
         return ApiClient.ajax({
             type: 'GET',
-            url: ApiClient.getUrl('Subsync/Sync/Items/' + itemId + '/Subtitles'),
+            url: ApiClient.getUrl('Subsync/Sync/' + itemId + '/Subtitles'),
             dataType: 'json'
         });
     }
@@ -248,7 +248,7 @@ export default function (view) {
 
         ApiClient.ajax({
             type: 'POST',
-            url: ApiClient.getUrl('Subsync/Sync/Items/' + itemId),
+            url: ApiClient.getUrl('Subsync/Sync/' + itemId),
             data: JSON.stringify(body),
             contentType: 'application/json',
             dataType: 'json'

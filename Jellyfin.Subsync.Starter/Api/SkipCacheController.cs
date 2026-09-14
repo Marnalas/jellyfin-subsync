@@ -42,7 +42,7 @@ public class SkipCacheController(
     /// configured SubtitleExtensions, so a later config change can't leave
     /// stale entries this endpoint can no longer reach.
     /// </summary>
-    [HttpDelete("Items/{itemId:guid}")]
+    [HttpDelete("{itemId:guid}")]
     public ActionResult<object> ClearForItem(Guid itemId)
     {
         var item = libraryManager.GetItemById(itemId);

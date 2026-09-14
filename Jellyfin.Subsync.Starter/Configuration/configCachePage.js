@@ -101,7 +101,7 @@ export default function (view) {
 
         ApiClient.ajax({
             type: 'DELETE',
-            url: ApiClient.getUrl('Subsync/SkipCache/Items/' + itemId),
+            url: ApiClient.getUrl('Subsync/SkipCache/' + itemId),
             dataType: 'json'
         }).then(function (result) {
             const total = result.removed + result.removedFailures;
