@@ -71,6 +71,13 @@ export default function (view) {
 
     function renderResults(items) {
         const container = byId('ItemSearchResults');
+        // Drawn on the container, not each row, so it appears once above the
+        // first row - separating the results from the search box/
+        // instructions above - rather than as a permanent line under an
+        // empty box.
+        container.style.borderTop = '1px solid rgba(128,128,128,.25)';
+        container.style.paddingTop = '0.75em';
+        container.style.marginTop = '0.5em';
         if (items.length === 0) {
             container.innerHTML = '<div class="fieldDescription">No matching items.</div>';
             return;
@@ -79,19 +86,48 @@ export default function (view) {
     }
 
     function searchItems(term) {
+        const container = byId('ItemSearchResults');
         if (!term) {
-            byId('ItemSearchResults').innerHTML = '';
+            container.innerHTML = '';
+            container.style.borderTop = '';
             return;
         }
 
-        ApiClient.getItems(ApiClient.getCurrentUserId(), {
-            searchTerm: term,
-            includeItemTypes: 'Movie,Episode,Video,MusicVideo,Trailer',
-            recursive: true,
-            limit: SEARCH_LIMIT,
-            fields: 'Path'
+        // Items' own searchTerm only matches an item's own name, so an
+        // episode never matches a search for its show. Search/Hints is
+        // built for exactly this - each hint carries the matched item's
+        // series, if any - but it doesn't carry Path, so the hits are
+        // batch-resolved to full items (one extra call, not one per item)
+        // and re-ordered back to the hints' own relevance order.
+        ApiClient.ajax({
+            type: 'GET',
+            url: ApiClient.getUrl('Search/Hints', {
+                searchTerm: term,
+                includeItemTypes: 'Movie,Episode,Video,MusicVideo,Trailer',
+                limit: SEARCH_LIMIT
+            }),
+            dataType: 'json'
         }).then(function (result) {
-            renderResults(result.Items || []);
+            const hints = result.SearchHints || [];
+            if (hints.length === 0) {
+                renderResults([]);
+                return;
+            }
+
+            ApiClient.getItems(ApiClient.getCurrentUserId(), {
+                ids: hints.map(function (h) {
+                    return h.ItemId || h.Id;
+                }).join(','),
+                fields: 'Path'
+            }).then(function (full) {
+                const itemsById = {};
+                (full.Items || []).forEach(function (item) {
+                    itemsById[item.Id] = item;
+                });
+                renderResults(hints.map(function (h) {
+                    return itemsById[h.ItemId || h.Id];
+                }).filter(Boolean));
+            });
         });
     }
 
@@ -145,7 +181,9 @@ export default function (view) {
         LibraryMenu.setTabs('subsync', 1, getTabs);
 
         byId('ItemSearch').value = '';
-        byId('ItemSearchResults').innerHTML = '';
+        const results = byId('ItemSearchResults');
+        results.innerHTML = '';
+        results.style.borderTop = '';
         byId('ClearAllStatus').textContent = '';
     });
 
