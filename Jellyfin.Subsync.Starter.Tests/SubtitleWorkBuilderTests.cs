@@ -391,7 +391,7 @@ public class ChooseReferenceTests
             new(
                 "/m/Movie.mkv",
                 ["/m/Movie.en.srt", "/m/Movie.en.srt", "/m/Movie.fr.srt", "/m/Movie.de.srt"],
-                new HashSet<string>() {"/m/Movie.en.srt"}),
+                new HashSet<string>() { "/m/Movie.en.srt" }),
             _ => true);
 
         Assert.NotEqual("/m/Movie.en.srt", reference);
@@ -406,7 +406,7 @@ public class ChooseReferenceTests
             new(
                 "/m/Movie.mkv",
                 ["/m/Movie.en.srt"],
-                new HashSet<string>() {"/m/Movie.en.srt"}),
+                new HashSet<string>() { "/m/Movie.en.srt" }),
             _ => true);
 
         Assert.Equal("/m/Movie.mkv", reference);
@@ -418,5 +418,106 @@ public class ChooseReferenceTests
         var group = new SubtitleSyncGroup("/m/Movie.mkv", ["/m/Movie.en.srt"]);
 
         Assert.Equal("/m/Movie.mkv", SubtitleWorkBuilder.ChooseReference("/m/Movie.en.srt", group, _ => true));
+    }
+}
+
+/// <summary>
+/// <see cref="SubtitleWorkBuilder.BuildCandidateList"/> is the shared join
+/// both the subtitle-picker endpoint and the single-subtitle sync endpoint's
+/// index validation use - it needs to report exactly what BuildWork already
+/// decided is eligible, dressed up with the MediaStream fields a picker
+/// needs and the skip-cache state that flags the issue's "best case"
+/// reference (a sibling the admin already knows is correctly synced).
+/// </summary>
+public class BuildCandidateListTests
+{
+    private static PluginConfiguration DefaultConfig()
+        => new() { SubtitleExtensions = ["srt", "ass", "ssa", "vtt", "sub"] };
+
+    private static MediaStream External(
+        string path, int index = 0, string? language = null, string? title = null, bool isForced = false)
+        => new()
+        {
+            Type = MediaStreamType.Subtitle,
+            IsExternal = true,
+            Path = path,
+            Index = index,
+            Language = language,
+            Title = title,
+            IsForced = isForced
+        };
+
+    [Fact]
+    public void MapsStreamMetadata()
+    {
+        var stream = External("/m/Movie.ar.srt", index: 7, language: "ara", title: "Arabic");
+        var work = SubtitleWorkBuilder.BuildWork("/m/Movie.mkv", isDiscImageOrFolder: false, [stream], DefaultConfig());
+        Assert.NotNull(work.Group);
+
+        var candidates = SubtitleWorkBuilder.BuildCandidateList(work.Group, [stream], _ => false);
+
+        var candidate = Assert.Single(candidates);
+        Assert.Equal(7, candidate.Index);
+        Assert.Equal("/m/Movie.ar.srt", candidate.Path);
+        Assert.Equal("ara", candidate.Language);
+        Assert.Equal("Arabic", candidate.Title);
+        Assert.False(candidate.IsForced);
+        Assert.False(candidate.IsAlreadySynced);
+    }
+
+    [Fact]
+    public void OrderMatchesGroupOrder()
+    {
+        MediaStream[] streams = [External("/m/Movie.fr.srt", 5), External("/m/Movie.en.srt", 1)];
+        var work = SubtitleWorkBuilder.BuildWork("/m/Movie.mkv", isDiscImageOrFolder: false, streams, DefaultConfig());
+        Assert.NotNull(work.Group);
+
+        var candidates = SubtitleWorkBuilder.BuildCandidateList(work.Group, streams, _ => false);
+
+        Assert.Equal(["/m/Movie.en.srt", "/m/Movie.fr.srt"], candidates.Select(c => c.Path));
+    }
+
+    [Fact]
+    public void IsAlreadySyncedReflectsTheInjectedPredicate()
+    {
+        MediaStream[] streams = [External("/m/Movie.en.srt", 0), External("/m/Movie.fr.srt", 1)];
+        var work = SubtitleWorkBuilder.BuildWork("/m/Movie.mkv", isDiscImageOrFolder: false, streams, DefaultConfig());
+        Assert.NotNull(work.Group);
+
+        var candidates = SubtitleWorkBuilder.BuildCandidateList(
+            work.Group, streams, path => path == "/m/Movie.en.srt");
+
+        Assert.True(candidates.Single(c => c.Path == "/m/Movie.en.srt").IsAlreadySynced);
+        Assert.False(candidates.Single(c => c.Path == "/m/Movie.fr.srt").IsAlreadySynced);
+    }
+
+    [Fact]
+    public void ForcedFlagComesFromTheGroupsForcedSet()
+    {
+        MediaStream[] streams = [External("/m/Movie.en.srt", 0, isForced: true), External("/m/Movie.fr.srt", 1)];
+        var work = SubtitleWorkBuilder.BuildWork("/m/Movie.mkv", isDiscImageOrFolder: false, streams, DefaultConfig());
+        Assert.NotNull(work.Group);
+
+        var candidates = SubtitleWorkBuilder.BuildCandidateList(work.Group, streams, _ => false);
+
+        Assert.True(candidates.Single(c => c.Path == "/m/Movie.en.srt").IsForced);
+        Assert.False(candidates.Single(c => c.Path == "/m/Movie.fr.srt").IsForced);
+    }
+
+    /// <summary>
+    /// A stream missing from the snapshot handed in (e.g. the library
+    /// changed between two independent reads) is skipped rather than
+    /// throwing - a caller that fetched streams twice shouldn't crash over
+    /// a race with the library.
+    /// </summary>
+    [Fact]
+    public void PathWithNoMatchingStream_IsSkippedRatherThanThrowing()
+    {
+        var group = new SubtitleSyncGroup("/m/Movie.mkv", ["/m/Movie.en.srt", "/m/Movie.fr.srt"]);
+        MediaStream[] onlyOneStream = [External("/m/Movie.en.srt", 0)];
+
+        var candidates = SubtitleWorkBuilder.BuildCandidateList(group, onlyOneStream, _ => false);
+
+        Assert.Equal(["/m/Movie.en.srt"], candidates.Select(c => c.Path));
     }
 }

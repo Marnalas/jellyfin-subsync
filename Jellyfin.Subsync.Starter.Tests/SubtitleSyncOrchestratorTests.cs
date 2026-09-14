@@ -275,6 +275,81 @@ public sealed class SubtitleSyncOrchestratorTests : IDisposable
     }
 
     /// <summary>
+    /// A user-directed "sync this one against that one" request knows best -
+    /// even when an already-synced sibling exists and the automatic
+    /// <see cref="SubtitleWorkBuilder.ChooseReference"/> logic would have
+    /// preferred it, an explicit override must win.
+    /// </summary>
+    [Fact]
+    public async Task ExplicitReferenceOverride_WinsOverTheAutomaticallyChosenSibling()
+    {
+        var video = Write("Movie.mkv");
+        var synced = Write("Movie.en.srt");
+        var pending = Write("Movie.fr.srt");
+        var client = new FakeSubsyncClient(SyncOutcome.Synced);
+        var skipCache = new FakeSkipCache();
+        skipCache.Synced.Add(synced); // would normally be auto-picked as the reference
+        var orchestrator = new SubtitleSyncOrchestrator(client, skipCache, new FakeFailCache(), NullLogger.Instance,
+            new FakeFolderChangeSuppressor());
+
+        await orchestrator.ProcessAsync(
+            Config(), new SubtitleSyncGroup(video, [synced, pending]), pending, CancellationToken.None,
+            referencePathOverride: video);
+
+        var (_, reference, sub) = Assert.Single(client.Calls);
+        Assert.Equal("Movie.mkv", reference);
+        Assert.Equal("Movie.fr.srt", sub);
+    }
+
+    /// <summary>
+    /// A stale override (the reference file was deleted or renamed since
+    /// whoever built the picker read it) must be caught here rather than
+    /// reach the sidecar as a reference path that doesn't exist.
+    /// </summary>
+    [Fact]
+    public async Task MissingReferenceOverride_IsSkippedWithoutCallingTheSidecar()
+    {
+        var video = Write("Movie.mkv");
+        var subtitle = Write("Movie.en.srt");
+        var missingReference = Path.Combine(_library, "never-existed.srt");
+        var client = new FakeSubsyncClient(SyncOutcome.Synced);
+        var orchestrator = new SubtitleSyncOrchestrator(client, new FakeSkipCache(), new FakeFailCache(),
+            NullLogger.Instance, new FakeFolderChangeSuppressor());
+
+        var result = await orchestrator.ProcessAsync(
+            Config(), new SubtitleSyncGroup(video, [subtitle]), subtitle, CancellationToken.None,
+            referencePathOverride: missingReference);
+
+        Assert.Null(result);
+        Assert.Empty(client.Calls);
+    }
+
+    /// <summary>
+    /// The early-outs (already synced, too many recent failures) must still
+    /// short-circuit even when a caller supplies an override - a guard
+    /// against a future refactor reordering the override past them.
+    /// </summary>
+    [Fact]
+    public async Task AlreadySyncedSubtitle_IsNotSubmittedEvenWithAReferenceOverride()
+    {
+        var video = Write("Movie.mkv");
+        var subtitle = Write("Movie.en.srt");
+        var reference = Write("Movie.fr.srt");
+        var client = new FakeSubsyncClient(SyncOutcome.Synced);
+        var skipCache = new FakeSkipCache();
+        skipCache.Synced.Add(subtitle);
+        var orchestrator = new SubtitleSyncOrchestrator(client, skipCache, new FakeFailCache(), NullLogger.Instance,
+            new FakeFolderChangeSuppressor());
+
+        var result = await orchestrator.ProcessAsync(
+            Config(), new SubtitleSyncGroup(video, [subtitle, reference]), subtitle, CancellationToken.None,
+            referencePathOverride: reference);
+
+        Assert.Null(result);
+        Assert.Empty(client.Calls);
+    }
+
+    /// <summary>
     /// The subtitle's containing folder - not the subtitle path itself -
     /// must be suppressed for the whole sidecar round-trip: the sidecar's
     /// temp and backup files sit next to the subtitle under different

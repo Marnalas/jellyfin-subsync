@@ -113,4 +113,44 @@ internal static class SubtitleWorkBuilder
 
         return group.VideoPath;
     }
+
+    /// <summary>
+    /// Dresses up <see cref="SubtitleSyncGroup.SubtitlePaths"/> with the
+    /// display info and skip-cache state a subtitle/reference picker needs -
+    /// shared by the "list this item's subtitles" endpoint and by the
+    /// "sync just this one" endpoint's index validation, so both agree on
+    /// exactly the same set of eligible subtitles. <paramref name="group"/>
+    /// must have been built from <paramref name="subtitleStreams"/> (or an
+    /// equivalent snapshot) - a path in <see cref="SubtitleSyncGroup.SubtitlePaths"/>
+    /// with no matching stream is skipped rather than throwing, since a
+    /// caller that fetched streams twice shouldn't crash over a race with
+    /// the library.
+    /// </summary>
+    internal static IReadOnlyList<SubtitleCandidate> BuildCandidateList(
+        SubtitleSyncGroup group,
+        IReadOnlyList<MediaStream> subtitleStreams,
+        Func<string, bool> isAlreadySynced)
+    {
+        var streamsByPath = subtitleStreams
+            .Where(stream => !string.IsNullOrEmpty(stream.Path))
+            .GroupBy(stream => stream.Path!, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
+
+        var candidates = new List<SubtitleCandidate>(group.SubtitlePaths.Count);
+        foreach (var path in group.SubtitlePaths)
+        {
+            if (!streamsByPath.TryGetValue(path, out var stream))
+                continue;
+
+            candidates.Add(new SubtitleCandidate(
+                stream.Index,
+                path,
+                stream.Language,
+                stream.Title,
+                group.ForcedSubtitlePaths?.Contains(path) == true,
+                isAlreadySynced(path)));
+        }
+
+        return candidates;
+    }
 }

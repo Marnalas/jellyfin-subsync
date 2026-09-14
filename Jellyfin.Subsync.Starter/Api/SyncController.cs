@@ -39,8 +39,19 @@ public class SyncController(
     ITaskManager taskManager,
     ILogger<SyncController> logger) : ControllerBase
 {
+    /// <remarks>
+    /// <paramref name="request"/> is optional: today's UI sends no body at
+    /// all for "sync everything", and an absent/no-Content-Type POST body
+    /// binds a nullable <see cref="SyncItemRequest"/> to null rather than
+    /// erroring, so that path is unaffected by this parameter's existence.
+    /// A <see cref="SyncItemRequest.SubtitleIndex"/> narrows the request to
+    /// just that one subtitle, syncing it against
+    /// <see cref="SyncItemRequest.ReferenceSubtitleIndex"/> if given, else
+    /// the video - see <see cref="SyncOneAsync"/>.
+    /// </remarks>
     [HttpPost("Items/{itemId:guid}")]
-    public async Task<ActionResult<object>> SyncItem(Guid itemId, CancellationToken cancellationToken)
+    public async Task<ActionResult<object>> SyncItem(
+        Guid itemId, [FromBody] SyncItemRequest? request, CancellationToken cancellationToken)
     {
         // The sweep and this endpoint share no lock over the actual sync
         // call, only over the skip-cache bookkeeping around it - two
@@ -91,13 +102,6 @@ public class SyncController(
                 statusCode: StatusCodes.Status500InternalServerError);
         }
 
-        var externalSubtitlePaths = SubtitleMatcher.GetExternalSubtitlePaths(subtitleStreams).ToList();
-        var removed = skipCache.RemoveForPaths(externalSubtitlePaths);
-        var removedFailures = failCache.RemoveForPaths(externalSubtitlePaths);
-        logger.LogInformation(
-            "Subsync cache: cleared {Count} skip-cache and {FailureCount} fail-cache entr(ies) for {Item}",
-            removed, removedFailures, item.Name);
-
         // ISO / BDMV / VIDEO_TS: no single elementary video file for
         // ffsubsync to align against. Read from metadata, not a stat.
         var isDiscImageOrFolder = item is Video video && video.VideoType != VideoType.VideoFile;
@@ -123,8 +127,79 @@ public class SyncController(
                 break;
         }
 
+        return request?.SubtitleIndex is { } subtitleIndex
+            ? await SyncOneAsync(work, subtitleStreams, config, subtitleIndex, request.ReferenceSubtitleIndex,
+                    cancellationToken)
+                .ConfigureAwait(false)
+            : await SyncAllAsync(item, work, subtitleStreams, config, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Lets the UI build a subtitle/reference picker for one item without
+    /// triggering a sync - read-only, so unlike <see cref="SyncItem"/> it
+    /// doesn't check <see cref="IsSweepRunning"/> or the sidecar's health;
+    /// it's safe to call at any time, including mid-sweep.
+    /// </summary>
+    [HttpGet("Items/{itemId:guid}/Subtitles")]
+    public ActionResult<object> GetSubtitles(Guid itemId)
+    {
+        var item = libraryManager.GetItemById(itemId);
+        if (item is null)
+            return NotFound();
+
+        var config = configurationProvider.GetSnapshot();
+
+        IReadOnlyList<MediaStream> subtitleStreams;
+        try
+        {
+            subtitleStreams = mediaSourceManager.GetMediaStreams(new MediaStreamQuery
+            {
+                ItemId = item.Id,
+                Type = MediaStreamType.Subtitle
+            });
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Subsync sync: failed to read media streams for {Item}, aborting", item.Name);
+            return Problem("Could not read this item's media streams.",
+                statusCode: StatusCodes.Status500InternalServerError);
+        }
+
+        var isDiscImageOrFolder = item is Video video && video.VideoType != VideoType.VideoFile;
+        var work = SubtitleWorkBuilder.BuildWork(item.Path, isDiscImageOrFolder, subtitleStreams, config);
+        var candidates = work.Group is null
+            ? []
+            : SubtitleWorkBuilder.BuildCandidateList(work.Group, subtitleStreams, skipCache.IsCached);
+
+        return Ok(new { reason = work.Reason.ToString(), subtitles = candidates });
+    }
+
+    /// <summary>
+    /// Today's whole-item behavior: clears the skip/fail cache for every
+    /// external subtitle Jellyfin knows about for this item (not just the
+    /// eligible ones - see <see cref="SubtitleMatcher.GetExternalSubtitlePaths(System.Collections.Generic.IEnumerable{MediaStream})"/>),
+    /// then syncs each eligible one in order so the first syncs against the
+    /// video and the rest can find it as an already-synced sibling.
+    /// </summary>
+    private async Task<ActionResult<object>> SyncAllAsync(
+        BaseItem item,
+        ItemSubtitleWork work,
+        IReadOnlyList<MediaStream> subtitleStreams,
+        PluginConfiguration config,
+        CancellationToken cancellationToken)
+    {
+        var externalSubtitlePaths = SubtitleMatcher.GetExternalSubtitlePaths(subtitleStreams).ToList();
+        var removed = skipCache.RemoveForPaths(externalSubtitlePaths);
+        var removedFailures = failCache.RemoveForPaths(externalSubtitlePaths);
+        logger.LogInformation(
+            "Subsync cache: cleared {Count} skip-cache and {FailureCount} fail-cache entr(ies) for {Item}",
+            removed, removedFailures, item.Name);
+
         if (work.Group is null)
-            return Ok(new { cleared = removed + removedFailures, reason = work.Reason.ToString(), results = Array.Empty<object>() });
+            return Ok(new
+            {
+                cleared = removed + removedFailures, reason = work.Reason.ToString(), results = Array.Empty<object>()
+            });
 
         var orchestrator = new SubtitleSyncOrchestrator(client, skipCache, failCache, logger, suppressor);
         var results = new List<object>();
@@ -166,7 +241,114 @@ public class SyncController(
         return Ok(new { cleared = removed + removedFailures, reason = work.Reason.ToString(), results });
     }
 
+    /// <summary>
+    /// Syncs exactly one of an item's eligible subtitles against an
+    /// explicitly chosen reference (another eligible subtitle, or the video
+    /// by default) instead of every subtitle Jellyfin knows about for the
+    /// item. Unlike <see cref="SyncAllAsync"/>, the skip/fail cache is only
+    /// cleared for the one subtitle being (re)synced - clearing every
+    /// sibling's cache entry too would undo exactly the "without affecting
+    /// others" behavior this endpoint exists for, and would also wipe the
+    /// cache state that makes a sibling eligible to be picked as a
+    /// known-good reference.
+    /// </summary>
+    private async Task<ActionResult<object>> SyncOneAsync(
+        ItemSubtitleWork work,
+        IReadOnlyList<MediaStream> subtitleStreams,
+        PluginConfiguration config,
+        int subtitleIndex,
+        int? referenceSubtitleIndex,
+        CancellationToken cancellationToken)
+    {
+        if (work.Group is null)
+            return Ok(new { cleared = 0, reason = work.Reason.ToString(), results = Array.Empty<object>() });
+
+        var candidates = SubtitleWorkBuilder.BuildCandidateList(work.Group, subtitleStreams, skipCache.IsCached);
+
+        var target = candidates.FirstOrDefault(c => c.Index == subtitleIndex);
+        if (target is null)
+            return BadRequest(new
+            {
+                error = $"Subtitle index {subtitleIndex} is not an eligible external subtitle for this item."
+            });
+
+        string referencePath;
+        if (referenceSubtitleIndex is { } referenceIndex)
+        {
+            if (referenceIndex == subtitleIndex)
+                return BadRequest(new
+                {
+                    error = "The reference subtitle can't be the same as the subtitle being synced."
+                });
+
+            var reference = candidates.FirstOrDefault(c => c.Index == referenceIndex);
+            if (reference is null)
+                return BadRequest(new
+                {
+                    error =
+                        $"Reference subtitle index {referenceIndex} is not an eligible external subtitle for this item."
+                });
+
+            referencePath = reference.Path;
+        }
+        else
+        {
+            referencePath = work.Group.VideoPath;
+        }
+
+        var removed = skipCache.RemoveForPaths([target.Path]);
+        var removedFailures = failCache.RemoveForPaths([target.Path]);
+        logger.LogInformation(
+            "Subsync cache: cleared {Count} skip-cache and {FailureCount} fail-cache entr(ies) for {Subtitle}",
+            removed, removedFailures, target.Path);
+
+        var orchestrator = new SubtitleSyncOrchestrator(client, skipCache, failCache, logger, suppressor);
+        object result;
+
+        try
+        {
+            var outcome = await orchestrator
+                .ProcessAsync(config, work.Group, target.Path, cancellationToken, referencePathOverride: referencePath)
+                .ConfigureAwait(false);
+            result = new { path = target.Path, outcome = outcome?.ToString() ?? "Skipped" };
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Subsync sync: failed to process {Subtitle}, continuing", target.Path);
+            result = new { path = target.Path, outcome = "Error" };
+        }
+        finally
+        {
+            skipCache.Flush();
+            failCache.Flush();
+        }
+
+        return Ok(new
+            { cleared = removed + removedFailures, reason = work.Reason.ToString(), results = new[] { result } });
+    }
+
     private bool IsSweepRunning() =>
         taskManager.ScheduledTasks.Any(worker =>
             worker is { ScheduledTask: SyncLibrarySweepTask, State: TaskState.Running or TaskState.Cancelling });
+
+    /// <summary>
+    /// Optional body for <see cref="SyncItem"/>. Absent (or an absent/null
+    /// <see cref="SubtitleIndex"/>) means "sync every eligible subtitle",
+    /// today's only behavior. A <see cref="SubtitleIndex"/> narrows the
+    /// request to that one subtitle; <see cref="ReferenceSubtitleIndex"/>
+    /// then optionally names what to align it against - another eligible
+    /// subtitle - instead of the video, which is the default when it's
+    /// absent. Both indices are <c>MediaStream.Index</c> values, matched
+    /// against the same candidate list <c>GET .../Subtitles</c> returns, so
+    /// a client never has to round-trip a filesystem path. Can't be
+    /// narrower than public: it's part of <see cref="SyncItem"/>'s own
+    /// signature, and a public method can't expose a less-accessible type -
+    /// nesting it here is as narrow as C# allows while still binding it
+    /// directly as that action's <c>[FromBody]</c> parameter type.
+    /// </summary>
+    public sealed record SyncItemRequest(int? SubtitleIndex, int? ReferenceSubtitleIndex);
 }

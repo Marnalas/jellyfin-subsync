@@ -35,18 +35,24 @@ function itemSubtitle(item) {
 function buildResultRowHtml(item) {
     const subtitle = itemSubtitle(item);
     return '' +
-        '<div class="inputContainer itemResultRow" data-item-id="' + escapeHtml(item.Id) + '" style="display:flex;align-items:center;justify-content:space-between;gap:1em;">' +
+        '<div class="inputContainer itemResultRow" data-item-id="' + escapeHtml(item.Id) + '">' +
+        '<div style="display:flex;align-items:center;justify-content:space-between;gap:1em;">' +
         '<div style="min-width:0;">' +
         '<div class="itemResultName">' + escapeHtml(item.Name) + '</div>' +
         (subtitle ? '<div class="fieldDescription itemResultSubtitle">' + escapeHtml(subtitle) + '</div>' : '') +
         (item.Path ? '<div class="fieldDescription itemResultPath" style="word-break:break-all;">' + escapeHtml(item.Path) + '</div>' : '') +
         '<div class="fieldDescription itemResultSyncStatus"></div>' +
         '</div>' +
-        '<div class="itemResultAction">' +
+        '<div class="itemResultAction" style="display:flex;flex-direction:column;align-items:flex-end;gap:0.25em;">' +
         '<button is="emby-button" type="button" class="raised syncItemButton">' +
         '<span>Sync</span>' +
         '</button>' +
+        '<button type="button" class="button-link syncOneToggle">' +
+        '<span>Sync one subtitle…</span>' +
+        '</button>' +
         '</div>' +
+        '</div>' +
+        '<div class="itemResultSubtitlePanel" style="margin-top:0.5em;" hidden></div>' +
         '</div>';
 }
 
@@ -68,6 +74,57 @@ function renderSyncSummary(result) {
         return r.outcome === 'Synced';
     }).length;
     return synced + ' of ' + result.results.length + ' subtitle(s) synced.';
+}
+
+// Labels a subtitle candidate for a picker: prefers "Title (language)",
+// falls back to whichever of the two is present, and falls back further to
+// its stream index when Jellyfin has neither - then flags forced/
+// already-synced tracks, the latter being the "best case" reference the
+// issue this feature closes is about (a sibling the admin already knows is
+// correctly synced).
+function subtitleOptionLabel(candidate) {
+    const base = candidate.title && candidate.language
+        ? candidate.title + ' (' + candidate.language + ')'
+        : (candidate.title || candidate.language || ('Track ' + candidate.index));
+
+    const flags = [];
+    if (candidate.isForced) flags.push('forced');
+    if (candidate.isAlreadySynced) flags.push('already synced');
+    return flags.length ? base + ' — ' + flags.join(', ') : base;
+}
+
+function buildReferenceOptionsHtml(subtitles, excludeIndex) {
+    return '<option value="">Video (default)</option>' +
+        subtitles
+            .filter(function (c) {
+                return c.index !== excludeIndex;
+            })
+            .map(function (c) {
+                return '<option value="' + c.index + '">' + escapeHtml(subtitleOptionLabel(c)) + '</option>';
+            })
+            .join('');
+}
+
+function buildSubtitlePanelHtml(data) {
+    const subtitles = data.subtitles || [];
+    if (subtitles.length === 0)
+        return '<div class="fieldDescription">No eligible subtitles to sync individually (' + escapeHtml(data.reason) + ').</div>';
+
+    const targetOptions = subtitles.map(function (c) {
+        return '<option value="' + c.index + '">' + escapeHtml(subtitleOptionLabel(c)) + '</option>';
+    }).join('');
+
+    return '' +
+        '<div class="inputContainer">' +
+        '<select is="emby-select" class="subtitleTargetSelect" label="Subtitle to sync">' + targetOptions + '</select>' +
+        '</div>' +
+        '<div class="inputContainer">' +
+        '<select is="emby-select" class="subtitleReferenceSelect" label="Sync against"></select>' +
+        '</div>' +
+        '<button is="emby-button" type="button" class="raised syncOneSubtitleButton">' +
+        '<span>Sync selected</span>' +
+        '</button>' +
+        '<div class="fieldDescription syncOneStatus"></div>';
 }
 
 export default function (view) {
@@ -125,6 +182,91 @@ export default function (view) {
         });
     }
 
+    function fetchSubtitleCandidates(itemId) {
+        return ApiClient.ajax({
+            type: 'GET',
+            url: ApiClient.getUrl('Subsync/Sync/Items/' + itemId + '/Subtitles'),
+            dataType: 'json'
+        });
+    }
+
+    // Rebuilds the reference `<select>` from whichever subtitle is
+    // currently chosen as the sync target, excluding that one - the
+    // client-side mirror of the rule the endpoint itself enforces (a
+    // subtitle can't be synced against itself).
+    function refreshReferenceOptions(panel) {
+        const targetSelect = panel.querySelector('.subtitleTargetSelect');
+        const referenceSelect = panel.querySelector('.subtitleReferenceSelect');
+        if (!targetSelect || !referenceSelect) return;
+
+        const row = panel.closest('.itemResultRow');
+        referenceSelect.innerHTML = buildReferenceOptionsHtml(row._subtitles || [], Number(targetSelect.value));
+    }
+
+    function toggleSubtitlePanel(row) {
+        const panel = row.querySelector('.itemResultSubtitlePanel');
+
+        if (!panel.hidden) {
+            panel.hidden = true;
+            return;
+        }
+
+        panel.hidden = false;
+
+        // Fetched once per row and cached on the element - re-expanding an
+        // already-loaded row shouldn't re-fetch.
+        if (row._subtitles) return;
+
+        panel.innerHTML = '<div class="fieldDescription">Loading subtitles…</div>';
+
+        fetchSubtitleCandidates(row.dataset.itemId).then(function (data) {
+            row._subtitles = data.subtitles || [];
+            panel.innerHTML = buildSubtitlePanelHtml(data);
+            refreshReferenceOptions(panel);
+        }).catch(function () {
+            row._subtitles = null;
+            panel.innerHTML = '<div class="fieldDescription">Failed to load subtitles - try again.</div>';
+        });
+    }
+
+    function syncOneSubtitle(row) {
+        const panel = row.querySelector('.itemResultSubtitlePanel');
+        const targetSelect = panel.querySelector('.subtitleTargetSelect');
+        const referenceSelect = panel.querySelector('.subtitleReferenceSelect');
+        const button = panel.querySelector('.syncOneSubtitleButton');
+        const status = panel.querySelector('.syncOneStatus');
+        if (!targetSelect || !referenceSelect) return;
+
+        const itemId = row.dataset.itemId;
+        const body = {
+            subtitleIndex: Number(targetSelect.value),
+            referenceSubtitleIndex: referenceSelect.value === '' ? null : Number(referenceSelect.value)
+        };
+
+        button.disabled = true;
+        status.textContent = 'Syncing…';
+
+        ApiClient.ajax({
+            type: 'POST',
+            url: ApiClient.getUrl('Subsync/Sync/Items/' + itemId),
+            data: JSON.stringify(body),
+            contentType: 'application/json',
+            dataType: 'json'
+        }).then(function (result) {
+            button.disabled = false;
+            status.textContent = renderSyncSummary(result);
+        }).catch(function (err) {
+            button.disabled = false;
+            if (err && err.status === 409) {
+                status.textContent = 'A library sweep is currently running - try again once it finishes.';
+            } else if (err && err.status === 400) {
+                status.textContent = 'Failed to sync - the selected subtitle or reference is no longer available.';
+            } else {
+                status.textContent = 'Failed to sync - try again';
+            }
+        });
+    }
+
     view.addEventListener('viewshow', function () {
         LibraryMenu.setTabs('subsync', 2, getTabs);
 
@@ -141,8 +283,26 @@ export default function (view) {
     });
 
     byId('ItemSearchResults').addEventListener('click', function (e) {
-        const button = e.target.closest('.syncItemButton');
-        if (!button) return;
-        syncItem(button.closest('.itemResultRow'));
+        const syncButton = e.target.closest('.syncItemButton');
+        if (syncButton) {
+            syncItem(syncButton.closest('.itemResultRow'));
+            return;
+        }
+
+        const toggleButton = e.target.closest('.syncOneToggle');
+        if (toggleButton) {
+            toggleSubtitlePanel(toggleButton.closest('.itemResultRow'));
+            return;
+        }
+
+        const syncOneButton = e.target.closest('.syncOneSubtitleButton');
+        if (syncOneButton) {
+            syncOneSubtitle(syncOneButton.closest('.itemResultRow'));
+        }
+    });
+
+    byId('ItemSearchResults').addEventListener('change', function (e) {
+        if (!e.target.classList.contains('subtitleTargetSelect')) return;
+        refreshReferenceOptions(e.target.closest('.itemResultSubtitlePanel'));
     });
 }
