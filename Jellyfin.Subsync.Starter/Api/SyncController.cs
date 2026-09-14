@@ -9,6 +9,7 @@ using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Model.Entities;
+using MediaBrowser.Model.Globalization;
 using MediaBrowser.Model.Tasks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
@@ -37,6 +38,7 @@ public class SyncController(
     ILibraryManager libraryManager,
     IMediaSourceManager mediaSourceManager,
     ITaskManager taskManager,
+    ILocalizationManager localizationManager,
     ILogger<SyncController> logger) : ControllerBase
 {
     /// <remarks>
@@ -186,6 +188,14 @@ public class SyncController(
                 index = c.Index,
                 path = c.Path,
                 language = c.Language,
+                // Jellyfin's own curated culture list, not the browser's -
+                // MediaStream.Language is an ISO 639 code ("eng"), which
+                // isn't something an admin should have to decode. Null when
+                // the stream has no language or Jellyfin doesn't recognize
+                // the code; the frontend falls back to the raw code then.
+                languageName = string.IsNullOrEmpty(c.Language)
+                    ? null
+                    : localizationManager.FindLanguageInfo(c.Language)?.DisplayName,
                 title = c.Title,
                 isForced = c.IsForced,
                 isAlreadySynced = c.IsAlreadySynced

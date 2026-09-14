@@ -77,21 +77,24 @@ function renderSyncSummary(result) {
     return synced + ' of ' + result.results.length + ' subtitle(s) synced.';
 }
 
-// Labels a subtitle candidate for a picker: prefers "Title (language)",
+// Labels a subtitle candidate for a picker: prefers "Title (Language)",
 // falls back to whichever of the two is present, and falls back further to
-// its stream index when Jellyfin has neither - then flags forced/
-// already-synced tracks, the latter being the "best case" reference the
-// issue this feature closes is about (a sibling the admin already knows is
-// correctly synced).
+// its stream index when Jellyfin has neither - then always states whether
+// it's already synced (the "best case" reference the issue this feature
+// closes is about - a sibling the admin already knows is correctly synced),
+// plus "forced" when applicable. languageName is resolved server-side via
+// ILocalizationManager (Jellyfin's own curated culture list); when Jellyfin
+// doesn't recognize the code, languageName is null and this falls back to
+// the raw code (candidate.language) itself, same as Jellyfin's own UI does.
 function subtitleOptionLabel(candidate) {
-    const base = candidate.title && candidate.language
-        ? candidate.title + ' (' + candidate.language + ')'
-        : (candidate.title || candidate.language || ('Track ' + candidate.index));
+    const languageName = candidate.languageName || candidate.language;
+    const base = candidate.title && languageName
+        ? candidate.title + ' (' + languageName + ')'
+        : (candidate.title || languageName || ('Track ' + candidate.index));
 
-    const flags = [];
+    const flags = [candidate.isAlreadySynced ? 'synced' : 'unsynced'];
     if (candidate.isForced) flags.push('forced');
-    if (candidate.isAlreadySynced) flags.push('already synced');
-    return flags.length ? base + ' — ' + flags.join(', ') : base;
+    return base + ' (' + flags.join(', ') + ')';
 }
 
 function buildReferenceOptionsHtml(subtitles, excludeIndex) {
