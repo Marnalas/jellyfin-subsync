@@ -64,24 +64,32 @@ A few flags that make sense in this plugin's context:
   pulled from a different regional cut with a longer intro, for example);
   lower it to fail fast instead of risking an alignment to a coincidental
   match far from where the real one is.
-- **`--vad` - swap the voice-activity detector.** The sidecar doesn't set this,
-  so whichever backend your installed `ffsubsync` version defaults to is used.
-  If it struggles on a particular library (noisy mixes, animation with sparse
-  dialogue), `--vad auditok` is a CPU-only alternative worth trying, and
-  `--vad subs_then_auditok` seeds the search from an existing (even
-  slightly-off) subtitle before falling back to audio. The `silero` and
-  `fused*` backends need the optional `torch` dependency, which the published
-  sidecar image does not install (no GPU base image, per the sidecar's
-  Dockerfile) - they'll fail on an unmodified image.
-- **`--skip-sync-on-low-quality` - refuse a low-confidence alignment.** Makes
-  ffsubsync leave the subtitle's timing unchanged instead of applying an
-  alignment it isn't confident about (tune the threshold with `--min-score`,
-  `--quality-max-offset-seconds`, `--max-framerate-deviation`). **Caveat for
-  this plugin:** when it triggers, ffsubsync still writes an output file (the
-  unchanged original), so the sidecar sees a normal success and the skip-cache
-  marks the file synced - it will not be retried on a later sweep even though
-  nothing was actually fixed. Clear that item's cache entry from the admin UI
-  once you've addressed the subtitle if it deserves another attempt.
+- **`--vad` - swap the voice-activity detector.** The sidecar passes
+  `--vad webrtc` unless you set `--vad` yourself. ffsubsync's own default is
+  `subs_then_webrtc`: when the video carries an embedded text subtitle stream
+  it aligns against that stream instead of the audio. On releases whose only
+  embedded track is a forced-only stub (signs and foreign lines, a few dozen
+  cues) that alignment has nothing to lock onto, and ffsubsync shifts a good
+  subtitle by up to `--max-offset-seconds` with a negative score
+  ([smacke/ffsubsync#238](https://github.com/smacke/ffsubsync/issues/238)).
+  Audio avoids that. If webrtc struggles on a particular library (noisy mixes,
+  animation with sparse dialogue), `--vad auditok` is a CPU-only alternative,
+  and `--vad subs_then_webrtc` restores ffsubsync's default if your videos
+  carry full, correctly timed embedded tracks. The `silero` and `fused*`
+  backends need the optional `torch` dependency, which the published sidecar
+  image does not install (no GPU base image, per the sidecar's Dockerfile) -
+  they'll fail on an unmodified image.
+- **`--skip-sync-on-low-quality` - refuse a low-confidence alignment.** The
+  sidecar passes this unless you set it yourself. It makes ffsubsync leave the
+  subtitle's timing unchanged instead of applying an alignment it isn't
+  confident about (tune the threshold with `--min-score`,
+  `--quality-max-offset-seconds`, `--max-framerate-deviation`). ffsubsync still
+  exits 0 when it triggers, so the sidecar reads its log instead: a run that
+  printed `leaving subtitles unmodified`, or a negative `score:`, is reported
+  as a **failed** job with the original file untouched. The plugin's fail-cache
+  then retries it a few more sweeps and stops. The parsed `score`,
+  `offset_seconds` and `framerate_scale_factor` are on every finished job
+  (`GET /jobs/{id}`), for done and failed alike.
 - **`--suppress-output-if-offset-less-than` - the opposite caveat.** When the
   computed offset is below the threshold, ffsubsync writes *no* output file at
   all. The sidecar's success check requires that file to exist, so this reads
