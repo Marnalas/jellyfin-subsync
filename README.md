@@ -44,7 +44,7 @@ made of two pieces:
                                           └───────────────────────┘
 ```
 
-No GPU is required - the default `webrtc` VAD `ffsubsync` uses is CPU-only.
+No GPU is required - the sidecar runs `ffsubsync` with the CPU-only `webrtc` VAD.
 
 ## Features
 

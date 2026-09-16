@@ -1,8 +1,8 @@
 # Add this service to your existing docker-compose file (the same one that
-# defines `jellyfin`). No GPU reservation, no device passthrough - plain
-# ffsubsync (webrtc VAD) is CPU-only, so there's nothing here for a GPU to
-# accelerate right now. If you switch to silero/fused VAD later, that's the
-# point to add gpu reservation here.
+# defines `jellyfin`). No GPU reservation, no device passthrough - the sidecar
+# runs ffsubsync with the CPU-only `webrtc` VAD, so there's nothing here for a
+# GPU to accelerate right now. If you switch to silero/fused VAD later, that's
+# the point to add gpu reservation here.
 
   subsync-sidecar:
     # Published image - no local build needed. Pin to a plugin version
@@ -19,6 +19,8 @@
       # --max-duration-seconds, --extract-audio-first, --multi-segment-sync, etc
       # Parsed with shell quoting rules, so an argument containing a space
       # works if you quote it: --vad "webrtc x"
+      # The sidecar adds `--vad webrtc --skip-sync-on-low-quality` on its own
+      # unless you set either flag here yourself (see docs/CONFIGURATION.md).
       FFSUBSYNC_EXTRA_ARGS: ""
       # How many sync jobs run at once. Leave empty or set to 0
       # to auto-detect (cpu_count - 1); set explicitly if this container has a `--cpus`
