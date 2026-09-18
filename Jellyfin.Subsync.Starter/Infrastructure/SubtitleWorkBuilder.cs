@@ -129,9 +129,6 @@ internal static class SubtitleWorkBuilder
         // rank within it instead of its raw Index.
         var embeddedByContainerOrder = embedded.OrderBy(stream => stream.Index).ToList();
 
-        int RelativeSubtitleStreamIndex(MediaStream stream)
-            => embeddedByContainerOrder.FindIndex(candidate => candidate.Index == stream.Index);
-
         // Priority: a good text track (report exactly which stream, below,
         // rather than leave it to ffsubsync's own unlogged, unobservable
         // duration-based pick) > an unambiguous single non-forced PGS track
@@ -186,6 +183,9 @@ internal static class SubtitleWorkBuilder
                 new SubtitleSyncGroup(itemPath, beside, forced, embeddedSituation, embeddedIndex),
                 ItemSkipReason.None,
                 elsewhere);
+
+        int RelativeSubtitleStreamIndex(MediaStream stream)
+            => embeddedByContainerOrder.FindIndex(candidate => candidate.Index == stream.Index);
     }
 
     /// <summary>

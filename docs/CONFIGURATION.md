@@ -59,6 +59,21 @@ A few flags that make sense in this plugin's context:
   optional): `--reference-stream a:1` for the second audio track, or
   `--reference-stream s:0` to align against an existing (correctly-timed)
   embedded subtitle track instead of audio at all.
+
+  The sidecar also adds this itself, pointed at a specific embedded text
+  subtitle stream, whenever the plugin's per-job report (see the `--vad`
+  entry below for what that report is and how it's gated) says a full
+  (non-forced) text track exists. Left to its own default, ffsubsync would
+  otherwise pick a stream itself (by longest duration) with no logging at
+  all of which one it chose - not wrong, but unobservable, so a bad
+  alignment could never be root-caused after the fact. The sidecar pins the
+  plugin's own pick instead, formatted the same way this flag always
+  expects (`s:<N>`, the stream's rank among the video's own embedded
+  subtitle streams - not its raw ffprobe/container stream index). An
+  explicit `--reference-stream ...` (or its aliases
+  `--refstream`/`--reference-track`/`--reftrack`) already in
+  `FFSUBSYNC_EXTRA_ARGS` always wins over this - nothing is added on top of
+  your own choice.
 - **`--max-offset-seconds` (default 60) - widen or narrow the search window.**
   Raise it if a subtitle is known to be off by more than a minute (subtitle
   pulled from a different regional cut with a longer intro, for example);
@@ -89,8 +104,13 @@ A few flags that make sense in this plugin's context:
   ffsubsync would otherwise shift a good subtitle by up to
   `--max-offset-seconds` with a negative score
   ([smacke/ffsubsync#238](https://github.com/smacke/ffsubsync/issues/238)).
-  Every other report - no embedded text subtitle at all, or at least one
-  full/non-forced one - leaves ffsubsync's own default alone. An explicit
+  Every other report leaves this flag's own VAD-backend choice alone: with
+  no embedded text subtitle at all, ffsubsync's own `subs_then_webrtc`
+  default already falls back to audio VAD on its own. With at least one
+  full/non-forced text stream, subs-based alignment is still used and this
+  flag isn't touched either - but see the `--reference-stream` entry above
+  for a related decision the sidecar *does* make in that case: which
+  specific embedded stream to align against. An explicit
   `--vad ...` in `FFSUBSYNC_EXTRA_ARGS` always wins over what the sidecar
   would otherwise decide, so you can override the backend globally
   regardless: `--vad auditok` is a CPU-only alternative if webrtc struggles
@@ -122,8 +142,11 @@ A few flags that make sense in this plugin's context:
   alongside a full one) the plugin can't guarantee which one that means, and
   reports nothing rather than risk aligning against the wrong one - same
   reasoning as the original forced-only-text-stub problem, just for PGS.
-  In that unambiguous case, the sidecar adds bare `--pgs-ref-stream`, which
-  is enough since there's only one candidate to auto-detect. An explicit
+  In that unambiguous case, the sidecar points `--pgs-ref-stream` at that
+  specific stream (`s:<N>`, same numbering as `--reference-stream` above) -
+  falling back to the bare flag, which auto-detects the sole candidate, only
+  when talking to a plugin old enough to report the situation without a
+  stream number. An explicit
   `--vad ...`, `--pgs-ref-stream ...` (or its alias `--pgsstream`), or
   `--reference-stream ...` (or its aliases `--refstream`/
   `--reference-track`/`--reftrack`) already in `FFSUBSYNC_EXTRA_ARGS` always
