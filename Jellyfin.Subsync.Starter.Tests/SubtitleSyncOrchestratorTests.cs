@@ -34,16 +34,16 @@ public sealed class SubtitleSyncOrchestratorTests : IDisposable
 
     private sealed class FakeSubsyncClient(SyncOutcome outcome) : ISubsyncClient
     {
-        public List<(string Folder, string Reference, string Subtitle)> Calls { get; } = [];
+        public List<(string Folder, string Reference, string Subtitle, string? Vad)> Calls { get; } = [];
 
         public Task<bool> IsHealthyAsync(PluginConfiguration config, CancellationToken cancellationToken) =>
             Task.FromResult(true);
 
         public Task<SyncOutcome> SyncAndWaitAsync(
             PluginConfiguration config, string folder, string referenceFilename, string subtitleFilename,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken, string? vad = null)
         {
-            Calls.Add((folder, referenceFilename, subtitleFilename));
+            Calls.Add((folder, referenceFilename, subtitleFilename, vad));
             return Task.FromResult(outcome);
         }
     }
@@ -243,7 +243,7 @@ public sealed class SubtitleSyncOrchestratorTests : IDisposable
         await orchestrator.ProcessAsync(
             Config(), new SubtitleSyncGroup(video, [subtitle]), subtitle, CancellationToken.None);
 
-        var (folder, reference, sub) = Assert.Single(client.Calls);
+        var (folder, reference, sub, _) = Assert.Single(client.Calls);
         Assert.Equal("/media/sidecar", folder);
         Assert.Equal("Movie.mkv", reference);
         Assert.Equal("Movie.en.srt", sub);
@@ -269,7 +269,7 @@ public sealed class SubtitleSyncOrchestratorTests : IDisposable
         await orchestrator.ProcessAsync(
             Config(), new SubtitleSyncGroup(video, [synced, pending]), pending, CancellationToken.None);
 
-        var (_, reference, sub) = Assert.Single(client.Calls);
+        var (_, reference, sub, _) = Assert.Single(client.Calls);
         Assert.Equal("Movie.en.srt", reference);
         Assert.Equal("Movie.fr.srt", sub);
     }
@@ -296,9 +296,81 @@ public sealed class SubtitleSyncOrchestratorTests : IDisposable
             Config(), new SubtitleSyncGroup(video, [synced, pending]), pending, CancellationToken.None,
             referencePathOverride: video);
 
-        var (_, reference, sub) = Assert.Single(client.Calls);
+        var (_, reference, sub, _) = Assert.Single(client.Calls);
         Assert.Equal("Movie.mkv", reference);
         Assert.Equal("Movie.fr.srt", sub);
+    }
+
+    /// <summary>
+    /// The one case the per-job VAD hint exists for: the video is the
+    /// reference (no already-synced sibling to align against instead) and
+    /// Jellyfin's own data says the item's embedded subtitle is a
+    /// forced-only stub ffsubsync's own default can't align against.
+    /// </summary>
+    [Fact]
+    public async Task VideoReferenceWithForcedOnlyEmbeddedStub_RequestsWebrtcVad()
+    {
+        var video = Write("Movie.mkv");
+        var subtitle = Write("Movie.en.srt");
+        var client = new FakeSubsyncClient(SyncOutcome.Synced);
+        var orchestrator = new SubtitleSyncOrchestrator(client, new FakeSkipCache(), new FakeFailCache(),
+            NullLogger.Instance, new FakeFolderChangeSuppressor());
+
+        await orchestrator.ProcessAsync(
+            Config(),
+            new SubtitleSyncGroup(video, [subtitle], EmbeddedSubtitleIsForcedOnlyStub: true),
+            subtitle,
+            CancellationToken.None);
+
+        var (_, _, _, vad) = Assert.Single(client.Calls);
+        Assert.Equal("webrtc", vad);
+    }
+
+    /// <summary>
+    /// The forced-only-stub flag only matters when the sidecar would
+    /// otherwise be aligning against the video itself - --vad has no effect
+    /// when the reference is another subtitle file.
+    /// </summary>
+    [Fact]
+    public async Task SiblingReferenceWithForcedOnlyEmbeddedStub_RequestsNoVad()
+    {
+        var video = Write("Movie.mkv");
+        var synced = Write("Movie.en.srt");
+        var pending = Write("Movie.fr.srt");
+        var client = new FakeSubsyncClient(SyncOutcome.Synced);
+        var skipCache = new FakeSkipCache();
+        skipCache.Synced.Add(synced);
+        var orchestrator = new SubtitleSyncOrchestrator(client, skipCache, new FakeFailCache(), NullLogger.Instance,
+            new FakeFolderChangeSuppressor());
+
+        await orchestrator.ProcessAsync(
+            Config(),
+            new SubtitleSyncGroup(video, [synced, pending], EmbeddedSubtitleIsForcedOnlyStub: true),
+            pending,
+            CancellationToken.None);
+
+        var (_, _, _, vad) = Assert.Single(client.Calls);
+        Assert.Null(vad);
+    }
+
+    /// <summary>
+    /// A video reference with no forced-only-stub flag set leaves ffsubsync's
+    /// own default (or the sidecar's own FFSUBSYNC_EXTRA_ARGS) untouched.
+    /// </summary>
+    [Fact]
+    public async Task VideoReferenceWithoutForcedOnlyEmbeddedStub_RequestsNoVad()
+    {
+        var video = Write("Movie.mkv");
+        var subtitle = Write("Movie.en.srt");
+        var client = new FakeSubsyncClient(SyncOutcome.Synced);
+        var orchestrator = new SubtitleSyncOrchestrator(client, new FakeSkipCache(), new FakeFailCache(),
+            NullLogger.Instance, new FakeFolderChangeSuppressor());
+
+        await orchestrator.ProcessAsync(
+            Config(), new SubtitleSyncGroup(video, [subtitle]), subtitle, CancellationToken.None);
+
+        var (_, _, _, vad) = Assert.Single(client.Calls);
+        Assert.Null(vad);
     }
 
     /// <summary>
@@ -398,7 +470,7 @@ public sealed class SubtitleSyncOrchestratorTests : IDisposable
 
         public Task<SyncOutcome> SyncAndWaitAsync(
             PluginConfiguration config, string folder, string referenceFilename, string subtitleFilename,
-            CancellationToken cancellationToken) =>
+            CancellationToken cancellationToken, string? vad = null) =>
             throw new InvalidOperationException("sidecar exploded");
     }
 
@@ -411,7 +483,7 @@ public sealed class SubtitleSyncOrchestratorTests : IDisposable
 
         public Task<SyncOutcome> SyncAndWaitAsync(
             PluginConfiguration config, string folder, string referenceFilename, string subtitleFilename,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken, string? vad = null)
         {
             ActiveFoldersDuringCall.AddRange(suppressor.ActiveFolders);
             return Task.FromResult(SyncOutcome.Synced);

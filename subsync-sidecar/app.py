@@ -70,27 +70,7 @@ def _env_args(name: str) -> list[str]:
         return []
 
 
-def _with_safety_defaults(user_args: list) -> list:
-    """Append the flags every unattended run should carry unless the user set
-    them. ffsubsync's own default VAD is `subs_then_webrtc`: when the video has
-    an embedded text subtitle stream it aligns against that instead of audio.
-    Forced-only tracks (signs, foreign lines - a few dozen cues) make that
-    alignment meaningless, and ffsubsync then shifts a good subtitle by up to
-    --max-offset-seconds with a negative score. Audio is the safer reference
-    for a sweep nobody is watching, so `--vad webrtc` goes on by default
-    (smacke/ffsubsync#238). `--skip-sync-on-low-quality` makes ffsubsync write
-    the original back instead of applying a negative-score shift; the sidecar
-    detects that below and fails the job so nothing is overwritten.
-    """
-    args = list(user_args)
-    if "--vad" not in args:
-        args += ["--vad", "webrtc"]
-    if "--skip-sync-on-low-quality" not in args:
-        args.append("--skip-sync-on-low-quality")
-    return args
-
-
-FFSUBSYNC_EXTRA_ARGS = _with_safety_defaults(_env_args("FFSUBSYNC_EXTRA_ARGS"))
+FFSUBSYNC_EXTRA_ARGS = _env_args("FFSUBSYNC_EXTRA_ARGS")
 
 # ffsubsync exits 0 whether or not it trusted its own alignment, so the only
 # signal is what it logs: the last `score:` / `offset seconds:` / `framerate
@@ -198,6 +178,13 @@ class SyncRequest(BaseModel):
     # older than 3.0.0.0, which had no say in it at all; None means
     # JOB_TIMEOUT_SECONDS. Capped by MAX_JOB_TIMEOUT_SECONDS either way.
     timeout_seconds: Optional[int] = None
+    # A value for ffsubsync's own --vad flag (e.g. "webrtc"), sent by a
+    # plugin that has determined - from Jellyfin's stream metadata, which
+    # this sidecar never sees - that ffsubsync's own subs_then_webrtc default
+    # would align against an embedded subtitle stream not worth trusting
+    # (e.g. a forced-only stub). Ignored when the user's own
+    # FFSUBSYNC_EXTRA_ARGS already sets --vad, which always wins.
+    vad: Optional[str] = None
 
 
 def _effective_timeout(requested: Optional[int]) -> int:
@@ -267,12 +254,16 @@ def _run_ffsubsync(job_id: str, req: SyncRequest, timeout_seconds: int):
             _fail(job_id, f"Can't remove stale temp file {temp_out}: {e}")
             return
 
+    extra_args = list(FFSUBSYNC_EXTRA_ARGS)
+    if req.vad and "--vad" not in extra_args:
+        extra_args += ["--vad", req.vad]
+
     cmd = [
         "ffsubsync",
         str(reference_path),
         "-i", str(sub_path),
         "-o", str(temp_out),
-        *FFSUBSYNC_EXTRA_ARGS,
+        *extra_args,
     ]
 
     log.info("Job %s: running %s (timeout %ds)", job_id, " ".join(cmd), timeout_seconds)

@@ -157,13 +157,28 @@ def test_extra_args_are_appended_to_the_command(run_sync, fake_ffsubsync, monkey
     assert fake_ffsubsync.option("--vad") == "webrtc x"
 
 
-def test_safety_defaults_are_passed_by_default(run_sync, fake_ffsubsync):
-    """Audio-only VAD and the low-quality guard go on every run unless the user
-    chose otherwise: ffsubsync's own default aligns against embedded subtitle
-    streams, and a forced-only stub makes that alignment garbage."""
+def test_no_vad_requested_and_none_configured_leaves_ffsubsyncs_default_alone(run_sync, fake_ffsubsync):
+    """Nothing is forced by default any more - a run with no per-job vad hint
+    and no --vad in FFSUBSYNC_EXTRA_ARGS lets ffsubsync's own default
+    (subs_then_webrtc) apply untouched."""
     run_sync()
+    assert "--vad" not in fake_ffsubsync.argv
+
+
+def test_requested_vad_is_applied_when_nothing_else_set_it(run_sync, fake_ffsubsync):
+    """The plugin's per-job hint (e.g. for a forced-only-stub embedded track)
+    is honoured when the user hasn't configured --vad themselves."""
+    run_sync(vad="webrtc")
     assert fake_ffsubsync.option("--vad") == "webrtc"
-    assert "--skip-sync-on-low-quality" in fake_ffsubsync.argv
+
+
+def test_users_configured_vad_wins_over_the_requested_one(run_sync, fake_ffsubsync, monkeypatch):
+    """An explicit FFSUBSYNC_EXTRA_ARGS --vad is the user's own choice and
+    always takes precedence over the plugin's per-job request."""
+    monkeypatch.setattr(app, "FFSUBSYNC_EXTRA_ARGS", ["--vad", "auditok"])
+    run_sync(vad="webrtc")
+    assert fake_ffsubsync.argv.count("--vad") == 1
+    assert fake_ffsubsync.option("--vad") == "auditok"
 
 
 # --- alignment metrics and the score gate ------------------------------------

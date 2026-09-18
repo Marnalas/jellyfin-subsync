@@ -68,7 +68,8 @@ public sealed class SubsyncClient(
         string folder,
         string referenceFilename,
         string subtitleFilename,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? vad = null)
     {
         var baseUrl = config.SidecarUrl.TrimEnd('/');
         var requestedTimeout = Math.Max(1, config.JobTimeoutSeconds);
@@ -80,7 +81,7 @@ public sealed class SubsyncClient(
             using var http = CreateClient(config);
             using var response = await http.PostAsJsonAsync(
                 $"{baseUrl}/sync",
-                new SyncRequest(folder, referenceFilename, subtitleFilename, requestedTimeout),
+                new SyncRequest(folder, referenceFilename, subtitleFilename, requestedTimeout, vad),
                 cancellationToken).ConfigureAwait(false);
 
             if ((int)response.StatusCode is >= 400 and < 500)
@@ -315,19 +316,30 @@ public sealed class SubsyncClient(
 
     private sealed record SyncRequest(
         [property: JsonPropertyName("folder")] string Folder,
-        [property: JsonPropertyName("reference_filename")] string ReferenceFilename,
-        [property: JsonPropertyName("subtitle_filename")] string SubtitleFilename,
-        [property: JsonPropertyName("timeout_seconds")] int TimeoutSeconds);
+        [property: JsonPropertyName("reference_filename")]
+        string ReferenceFilename,
+        [property: JsonPropertyName("subtitle_filename")]
+        string SubtitleFilename,
+        [property: JsonPropertyName("timeout_seconds")]
+        int TimeoutSeconds,
+        // Null unless this plugin determined the sidecar's default (or its
+        // own FFSUBSYNC_EXTRA_ARGS) isn't safe for this job - see
+        // ISubsyncClient.SyncAndWaitAsync's vad parameter. A sidecar older
+        // than this protocol ignores unknown fields, so this is harmless
+        // against one that predates it.
+        [property: JsonPropertyName("vad")] string? Vad = null);
 
     private sealed record SyncJobResponse(
         [property: JsonPropertyName("job_id")] string JobId,
         // Absent from a sidecar older than this protocol.
-        [property: JsonPropertyName("effective_timeout_seconds")] int? EffectiveTimeoutSeconds);
+        [property: JsonPropertyName("effective_timeout_seconds")]
+        int? EffectiveTimeoutSeconds);
 
     private sealed record JobStatusResponse(
         [property: JsonPropertyName("status")] string Status,
         [property: JsonPropertyName("error")] string? Error,
         // Measured by the sidecar. Null while the job is still queued, and
         // absent entirely from a sidecar older than this protocol.
-        [property: JsonPropertyName("running_seconds")] double? RunningSeconds);
+        [property: JsonPropertyName("running_seconds")]
+        double? RunningSeconds);
 }

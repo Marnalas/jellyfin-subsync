@@ -8,10 +8,20 @@ namespace Jellyfin.Subsync.Starter.Domain;
 /// single folder plus two filenames, so a cross-directory pair can't be
 /// expressed.
 /// </summary>
+/// <param name="EmbeddedSubtitleIsForcedOnlyStub">
+/// True when the item has at least one embedded (non-external) subtitle
+/// stream and every one of them is forced - the "only embedded track is
+/// a forced-only stub" scenario ffsubsync's own subs_then_webrtc default
+/// can't align against. False when there's no embedded subtitle at all
+/// (ffsubsync's default already falls back to audio on its own) or when
+/// at least one embedded track is a full, non-forced subtitle (a
+/// legitimate reference ffsubsync's default should be left to use).
+/// </param>
 internal sealed record SubtitleSyncGroup(
     string VideoPath,
     IReadOnlyList<string> SubtitlePaths,
-    IReadOnlySet<string>? ForcedSubtitlePaths = null);
+    IReadOnlySet<string>? ForcedSubtitlePaths = null,
+    bool EmbeddedSubtitleIsForcedOnlyStub = false);
 
 /// <summary>
 /// Why an item produced no group. Only used for logging - the sweep skips

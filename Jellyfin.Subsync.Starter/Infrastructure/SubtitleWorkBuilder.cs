@@ -85,9 +85,24 @@ internal static class SubtitleWorkBuilder
                 forced.Add(path);
         }
 
+        // Not used to pick sync candidates - only external streams are ever
+        // synced - but Jellyfin already resolved these, and they're the only
+        // way to tell whether ffsubsync's own default (align against an
+        // embedded subtitle stream before falling back to audio) is safe for
+        // this item: it isn't when the only embedded track(s) are forced-only
+        // stubs (signs/foreign lines) with nothing for that alignment to lock
+        // onto.
+        var embedded = subtitleStreams
+            .Where(stream => stream is { Type: MediaStreamType.Subtitle, IsExternal: false })
+            .ToList();
+        var embeddedIsForcedOnlyStub = embedded.Count > 0 && embedded.All(stream => stream.IsForced);
+
         return beside.Count == 0
             ? new ItemSubtitleWork(null, ItemSkipReason.NoUsableSubtitles, elsewhere)
-            : new ItemSubtitleWork(new SubtitleSyncGroup(itemPath, beside, forced), ItemSkipReason.None, elsewhere);
+            : new ItemSubtitleWork(
+                new SubtitleSyncGroup(itemPath, beside, forced, embeddedIsForcedOnlyStub),
+                ItemSkipReason.None,
+                elsewhere);
     }
 
     /// <summary>

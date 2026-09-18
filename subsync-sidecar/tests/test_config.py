@@ -150,30 +150,19 @@ def test_timeout_over_the_ceiling_is_clamped():
     assert app._effective_timeout(999_999) == app.MAX_JOB_TIMEOUT_SECONDS
 
 
-# --- _with_safety_defaults ---------------------------------------------------
+# --- FFSUBSYNC_EXTRA_ARGS: nothing is injected -------------------------------
 
-def test_safety_defaults_added_when_user_sets_nothing():
-    assert app._with_safety_defaults([]) == ["--vad", "webrtc", "--skip-sync-on-low-quality"]
-
-
-def test_user_vad_choice_is_respected():
-    args = app._with_safety_defaults(["--vad", "subs_then_webrtc"])
-    assert args.count("--vad") == 1
-    assert args[args.index("--vad") + 1] == "subs_then_webrtc"
-    assert "--skip-sync-on-low-quality" in args
-
-
-def test_user_low_quality_flag_is_not_duplicated():
-    args = app._with_safety_defaults(["--skip-sync-on-low-quality", "--min-score", "100"])
-    assert args.count("--skip-sync-on-low-quality") == 1
-    assert args[-3:] == ["--min-score", "100", "--vad"] or args[-2:] == ["--vad", "webrtc"]
-
-
-def test_extra_args_env_gets_the_safety_defaults(reloaded_app):
+def test_extra_args_env_is_used_as_is_with_nothing_added(reloaded_app):
+    """The sidecar no longer appends anything of its own - FFSUBSYNC_EXTRA_ARGS
+    is exactly what the user configured, and any per-job --vad hint is applied
+    later, per request, in _run_ffsubsync rather than baked into this constant."""
     reloaded = reloaded_app(FFSUBSYNC_EXTRA_ARGS="--max-duration-seconds 1200")
-    assert reloaded.FFSUBSYNC_EXTRA_ARGS == [
-        "--max-duration-seconds", "1200", "--vad", "webrtc", "--skip-sync-on-low-quality",
-    ]
+    assert reloaded.FFSUBSYNC_EXTRA_ARGS == ["--max-duration-seconds", "1200"]
+
+
+def test_extra_args_env_unset_is_empty(reloaded_app):
+    reloaded = reloaded_app(FFSUBSYNC_EXTRA_ARGS="")
+    assert reloaded.FFSUBSYNC_EXTRA_ARGS == []
 
 
 # --- _parse_ffsubsync_result -------------------------------------------------

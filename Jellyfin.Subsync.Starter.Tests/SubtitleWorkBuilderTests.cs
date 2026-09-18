@@ -30,6 +30,15 @@ public class SubtitleWorkBuilderTests
             Index = index
         };
 
+    private static MediaStream Embedded(int index = 0, bool isForced = false)
+        => new()
+        {
+            Type = MediaStreamType.Subtitle,
+            IsExternal = false,
+            Index = index,
+            IsForced = isForced
+        };
+
     private static ItemSubtitleWork Build(string? itemPath, params MediaStream[] streams)
         => SubtitleWorkBuilder.BuildWork(itemPath, isDiscImageOrFolder: false, streams, DefaultConfig());
 
@@ -311,6 +320,65 @@ public class SubtitleWorkBuilderTests
         Assert.Equal(ItemSkipReason.NoUsableSubtitles, work.Reason);
         Assert.Null(work.Group);
         Assert.Empty(work.SubtitlesInOtherDirectories);
+    }
+
+    // --- G2. Embedded forced-only-stub detection -----------------------------
+
+    /// <summary>
+    /// <see cref="SubtitleSyncGroup.EmbeddedSubtitleIsForcedOnlyStub"/> is
+    /// what tells the orchestrator ffsubsync's own default alignment isn't
+    /// safe for this item - see <see cref="SubtitleWorkBuilder.ChooseReference"/>'s
+    /// caller. Embedded streams never affect which external subtitles get
+    /// synced (see <see cref="EmbeddedStream_IsIgnored"/>); these tests cover
+    /// only that separate signal.
+    /// </summary>
+    [Fact]
+    public void SoleEmbeddedStream_Forced_IsAForcedOnlyStub()
+    {
+        var work = Build("/m/Movie.mkv", External("/m/Movie.en.srt"), Embedded(isForced: true));
+
+        Assert.NotNull(work.Group);
+        Assert.True(work.Group.EmbeddedSubtitleIsForcedOnlyStub);
+    }
+
+    [Fact]
+    public void SoleEmbeddedStream_NotForced_IsNotAForcedOnlyStub()
+    {
+        var work = Build("/m/Movie.mkv", External("/m/Movie.en.srt"), Embedded(isForced: false));
+
+        Assert.NotNull(work.Group);
+        Assert.False(work.Group.EmbeddedSubtitleIsForcedOnlyStub);
+    }
+
+    /// <summary>
+    /// One full embedded track is a legitimate reference ffsubsync's own
+    /// default should be left to use, even alongside a forced one.
+    /// </summary>
+    [Fact]
+    public void MixOfForcedAndNonForcedEmbeddedStreams_IsNotAForcedOnlyStub()
+    {
+        var work = Build(
+            "/m/Movie.mkv",
+            External("/m/Movie.en.srt"),
+            Embedded(isForced: true),
+            Embedded(1, isForced: false));
+
+        Assert.NotNull(work.Group);
+        Assert.False(work.Group.EmbeddedSubtitleIsForcedOnlyStub);
+    }
+
+    /// <summary>
+    /// No embedded subtitle at all: ffsubsync's own subs_then_webrtc default
+    /// already falls back to audio on its own, so there's nothing to protect
+    /// against here.
+    /// </summary>
+    [Fact]
+    public void NoEmbeddedStream_IsNotAForcedOnlyStub()
+    {
+        var work = Build("/m/Movie.mkv", External("/m/Movie.en.srt"));
+
+        Assert.NotNull(work.Group);
+        Assert.False(work.Group.EmbeddedSubtitleIsForcedOnlyStub);
     }
 
     // --- G. Ordering ---------------------------------------------------------

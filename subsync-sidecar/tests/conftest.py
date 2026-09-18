@@ -175,13 +175,14 @@ def make_job():
 @pytest.fixture
 def run_sync(library, make_job):
     """Run `_run_ffsubsync` end to end against `library` and return the job."""
-    def _run(folder=None, reference="v.mkv", subtitle="s.srt", timeout=10, **fields):
+    def _run(folder=None, reference="v.mkv", subtitle="s.srt", timeout=10, vad=None, **fields):
         job_id = make_job(timeout_seconds=timeout, **fields)
         request = app.SyncRequest(
             folder=str(library if folder is None else folder),
             reference_filename=reference,
             subtitle_filename=subtitle,
             timeout_seconds=timeout,
+            vad=vad,
         )
         app._run_ffsubsync(job_id, request, timeout)
         return app.jobs[job_id]

@@ -47,9 +47,14 @@ services:
     #                 # it over the internal docker network either way
     environment:
       # Any extra arg you want added to the ffsubsync commands (e.g.
-      # --max-duration-seconds, --extract-audio-first, --multi-segment-sync, etc
-      # Parsed with shell quoting rules, so quote any argument containing a
-      # space: --vad "webrtc x"
+      # --max-duration-seconds, --extract-audio-first, --multi-segment-sync,
+      # --skip-sync-on-low-quality, etc). Parsed with shell quoting rules, so
+      # quote any argument containing a space: --vad "webrtc x"
+      # Nothing is added here automatically. The plugin may still ask for
+      # --vad webrtc on a specific job when Jellyfin's own subtitle metadata
+      # says the video's only embedded subtitle track is a forced-only stub -
+      # an explicit --vad set here always overrides that. See
+      # docs/CONFIGURATION.md for both of these.
       FFSUBSYNC_EXTRA_ARGS: ""
       # How many sync jobs run at once. Leave empty or set to 0
       # to auto-detect (cpu_count - 1); recommended to set explicitly

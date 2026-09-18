@@ -1,4 +1,5 @@
 using Jellyfin.Subsync.Starter.Configuration;
+using Jellyfin.Subsync.Starter.Domain;
 
 namespace Jellyfin.Subsync.Starter.Infrastructure;
 
@@ -48,10 +49,23 @@ public interface ISubsyncClient
     /// Configuration is passed per call rather than held: a sweep reads it
     /// once and threads the same snapshot through every file.
     /// </summary>
+    /// <param name="config">Sidecar URL and timeouts for this call.</param>
+    /// <param name="folder">The sidecar-side folder both files live in.</param>
+    /// <param name="referenceFilename">What to align the subtitle against.</param>
+    /// <param name="subtitleFilename">The subtitle file to align and overwrite.</param>
+    /// <param name="cancellationToken">Cancels the submit-and-poll round trip.</param>
+    /// <param name="vad">
+    /// A value for ffsubsync's own --vad flag (e.g. "webrtc"), or null to
+    /// leave ffsubsync's default (or the sidecar's own FFSUBSYNC_EXTRA_ARGS
+    /// configuration) alone. Set only when this plugin has determined, from
+    /// Jellyfin's stream metadata, that the default isn't safe for this
+    /// particular job - see <see cref="SubtitleSyncGroup.EmbeddedSubtitleIsForcedOnlyStub"/>.
+    /// </param>
     Task<SyncOutcome> SyncAndWaitAsync(
         PluginConfiguration config,
         string folder,
         string referenceFilename,
         string subtitleFilename,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        string? vad = null);
 }

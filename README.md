@@ -44,7 +44,8 @@ made of two pieces:
                                           └───────────────────────┘
 ```
 
-No GPU is required - the sidecar runs `ffsubsync` with the CPU-only `webrtc` VAD.
+No GPU is required - every VAD backend the sidecar image ships (ffsubsync's
+own default `subs_then_webrtc`, plus `webrtc` and `auditok`) runs CPU-only.
 
 ## Features
 

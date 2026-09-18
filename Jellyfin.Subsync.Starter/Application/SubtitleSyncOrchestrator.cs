@@ -76,6 +76,17 @@ internal class SubtitleSyncOrchestrator(
             group,
             candidate => File.Exists(candidate) && skipCache.IsCached(candidate));
 
+        // Only relevant when the sidecar would otherwise decide for itself
+        // what to align against - i.e. the reference is the video, not an
+        // already-synced sibling subtitle, where --vad has no effect at all.
+        // "webrtc" is asked for only when this item's embedded subtitle
+        // stream(s) are a forced-only stub Jellyfin already told us about;
+        // every other case leaves ffsubsync's own default (or the sidecar's
+        // own FFSUBSYNC_EXTRA_ARGS) untouched.
+        var vad = referencePath == group.VideoPath && group.EmbeddedSubtitleIsForcedOnlyStub
+            ? "webrtc"
+            : null;
+
         var subtitleMapping = SubtitleMatcher.ToSidecarAbsolute(subtitlePath, config);
         var referenceFileMapping = SubtitleMatcher.ToSidecarAbsolute(referencePath, config);
         if (subtitleMapping is null || referenceFileMapping is null)
@@ -97,7 +108,7 @@ internal class SubtitleSyncOrchestrator(
         using (suppressor.Suppress(subtitleDirectory))
         {
             var outcome = await client
-                .SyncAndWaitAsync(config, folder, referenceFilename, subtitleFilename, cancellationToken)
+                .SyncAndWaitAsync(config, folder, referenceFilename, subtitleFilename, cancellationToken, vad)
                 .ConfigureAwait(false);
 
             // Only a confirmed sync is recorded. A job we timed out on or

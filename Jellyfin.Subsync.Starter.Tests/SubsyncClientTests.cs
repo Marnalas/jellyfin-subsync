@@ -38,7 +38,9 @@ public class SubsyncClientTests
 
     private static HttpResponseMessage JobStatus(string status, double? runningSeconds = null, string? error = null)
     {
-        var running = runningSeconds is null ? "null" : runningSeconds.Value.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
+        var running = runningSeconds is null
+            ? "null"
+            : runningSeconds.Value.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
         var errorJson = error is null ? "null" : JsonSerializer.Serialize(error);
         return FakeHttpMessageHandler.Json(
             HttpStatusCode.OK,
@@ -102,7 +104,8 @@ public class SubsyncClientTests
         var (client, handler, _) = Build((request, _) =>
             request.RequestUri!.AbsolutePath == "/sync" ? Created() : JobStatus("done"));
 
-        var outcome = await PumpToCompletionAsync(StartSync(client, Config(jobTimeoutSeconds: 900)), TimeSpan.FromSeconds(1));
+        var outcome =
+            await PumpToCompletionAsync(StartSync(client, Config(jobTimeoutSeconds: 900)), TimeSpan.FromSeconds(1));
 
         Assert.Equal(SyncOutcome.Synced, outcome);
 
@@ -113,14 +116,55 @@ public class SubsyncClientTests
         Assert.Equal("Movie.en.srt", submitted.GetProperty("subtitle_filename").GetString());
     }
 
+    /// <summary>
+    /// The orchestrator only ever passes a vad hint for the specific
+    /// forced-only-embedded-stub case; most jobs pass none, and the sidecar
+    /// must see that as absent (null), not as an empty or missing-but-present
+    /// property some serializer configuration could turn into "".
+    /// </summary>
+    [Fact]
+    public async Task Submit_OmitsVadWhenNoneIsGiven()
+    {
+        var (client, handler, _) = Build((request, _) =>
+            request.RequestUri!.AbsolutePath == "/sync" ? Created() : JobStatus("done"));
+
+        await PumpToCompletionAsync(StartSync(client, Config()), TimeSpan.FromSeconds(1));
+
+        var submitted = JsonSerializer.Deserialize<JsonElement>(handler.Requests[0].Body!);
+        Assert.True(submitted.TryGetProperty("vad", out var vad));
+        Assert.Equal(JsonValueKind.Null, vad.ValueKind);
+    }
+
+    /// <summary>
+    /// The per-job VAD hint reaches the sidecar as-is when the orchestrator
+    /// supplies one (a forced-only-stub embedded track).
+    /// </summary>
+    [Fact]
+    public async Task Submit_SendsTheRequestedVad()
+    {
+        var (client, handler, _) = Build((request, _) =>
+            request.RequestUri!.AbsolutePath == "/sync" ? Created() : JobStatus("done"));
+
+        await PumpToCompletionAsync(
+            client.SyncAndWaitAsync(Config(), "/media/films/Movie", "Movie.mkv", "Movie.en.srt",
+                CancellationToken.None, vad: "webrtc"),
+            TimeSpan.FromSeconds(1));
+
+        var submitted = JsonSerializer.Deserialize<JsonElement>(handler.Requests[0].Body!);
+        Assert.Equal("webrtc", submitted.GetProperty("vad").GetString());
+    }
+
     [Fact]
     public async Task DoneJob_IsSynced()
     {
         var (client, _, _) = Build((request, ordinal) => request.RequestUri!.AbsolutePath == "/sync"
             ? Created()
-            : ordinal < 3 ? JobStatus("running", runningSeconds: ordinal) : JobStatus("done", runningSeconds: 4));
+            : ordinal < 3
+                ? JobStatus("running", runningSeconds: ordinal)
+                : JobStatus("done", runningSeconds: 4));
 
-        Assert.Equal(SyncOutcome.Synced, await PumpToCompletionAsync(StartSync(client, Config()), TimeSpan.FromSeconds(1)));
+        Assert.Equal(SyncOutcome.Synced,
+            await PumpToCompletionAsync(StartSync(client, Config()), TimeSpan.FromSeconds(1)));
     }
 
     [Fact]
@@ -130,7 +174,8 @@ public class SubsyncClientTests
             ? Created()
             : JobStatus("failed", error: "ffsubsync exited 1"));
 
-        Assert.Equal(SyncOutcome.Failed, await PumpToCompletionAsync(StartSync(client, Config()), TimeSpan.FromSeconds(1)));
+        Assert.Equal(SyncOutcome.Failed,
+            await PumpToCompletionAsync(StartSync(client, Config()), TimeSpan.FromSeconds(1)));
     }
 
     /// <summary>
@@ -149,7 +194,7 @@ public class SubsyncClientTests
         var outcome = await PumpToCompletionAsync(StartSync(client, Config()), TimeSpan.FromSeconds(1));
 
         Assert.Equal(SyncOutcome.JobUnknown, outcome);
-        Assert.Equal(2, handler.Requests.Count);   // the submit, and exactly one poll
+        Assert.Equal(2, handler.Requests.Count); // the submit, and exactly one poll
     }
 
     [Fact]
@@ -161,7 +206,8 @@ public class SubsyncClientTests
             if (path == "/sync")
                 return Created();
             if (path.EndsWith("/cancel", StringComparison.Ordinal))
-                return FakeHttpMessageHandler.Json(HttpStatusCode.OK, """{"job_id":"job-1","status":"cancelled","cancelled":true}""");
+                return FakeHttpMessageHandler.Json(HttpStatusCode.OK,
+                    """{"job_id":"job-1","status":"cancelled","cancelled":true}""");
             throw new HttpRequestException("connection refused");
         });
 
@@ -188,7 +234,8 @@ public class SubsyncClientTests
         var outcome = await PumpToCompletionAsync(StartSync(client, Config()), TimeSpan.FromSeconds(1));
 
         Assert.Equal(SyncOutcome.Synced, outcome);
-        Assert.True(handler.Requests.Count > 6, "the run should have survived more failures than the cap allows in a row");
+        Assert.True(handler.Requests.Count > 6,
+            "the run should have survived more failures than the cap allows in a row");
     }
 
     /// <summary>
@@ -207,7 +254,8 @@ public class SubsyncClientTests
             if (path == "/sync")
                 return Created();
             if (path.EndsWith("/cancel", StringComparison.Ordinal))
-                return FakeHttpMessageHandler.Json(HttpStatusCode.OK, """{"job_id":"job-1","status":"cancelled","cancelled":true}""");
+                return FakeHttpMessageHandler.Json(HttpStatusCode.OK,
+                    """{"job_id":"job-1","status":"cancelled","cancelled":true}""");
             return JobStatus("queued");
         });
 
@@ -230,7 +278,9 @@ public class SubsyncClientTests
     {
         var (client, _, _) = Build((request, ordinal) => request.RequestUri!.AbsolutePath == "/sync"
             ? Created()
-            : ordinal < 500 ? JobStatus("queued") : JobStatus("done"));
+            : ordinal < 500
+                ? JobStatus("queued")
+                : JobStatus("done"));
 
         var config = Config(jobTimeoutSeconds: 60, queueWaitTimeoutSeconds: 0);
         var task = StartSync(client, config);
@@ -254,14 +304,16 @@ public class SubsyncClientTests
         {
             var path = request.RequestUri!.AbsolutePath;
             if (path == "/sync")
-                return Created(effectiveTimeoutSeconds: 60);   // clamped, well below what was asked
+                return Created(effectiveTimeoutSeconds: 60); // clamped, well below what was asked
             if (path.EndsWith("/cancel", StringComparison.Ordinal))
-                return FakeHttpMessageHandler.Json(HttpStatusCode.OK, """{"job_id":"job-1","status":"running","cancelled":false}""");
+                return FakeHttpMessageHandler.Json(HttpStatusCode.OK,
+                    """{"job_id":"job-1","status":"running","cancelled":false}""");
             return JobStatus("running", runningSeconds: null);
         });
 
         var start = _time.GetUtcNow();
-        var outcome = await PumpToCompletionAsync(StartSync(client, Config(jobTimeoutSeconds: 3600)), TimeSpan.FromSeconds(1));
+        var outcome =
+            await PumpToCompletionAsync(StartSync(client, Config(jobTimeoutSeconds: 3600)), TimeSpan.FromSeconds(1));
 
         Assert.Equal(SyncOutcome.RunTimedOut, outcome);
         // 60s clamped budget + the 60s grace, not the 3600s that was asked for.
@@ -282,7 +334,8 @@ public class SubsyncClientTests
             if (path == "/sync")
                 return Created(effectiveTimeoutSeconds: 600);
             if (path.EndsWith("/cancel", StringComparison.Ordinal))
-                return FakeHttpMessageHandler.Json(HttpStatusCode.OK, """{"job_id":"job-1","status":"running","cancelled":false}""");
+                return FakeHttpMessageHandler.Json(HttpStatusCode.OK,
+                    """{"job_id":"job-1","status":"running","cancelled":false}""");
             return JobStatus("running", runningSeconds: ordinal * 100.0);
         });
 
@@ -309,7 +362,8 @@ public class SubsyncClientTests
                 HttpStatusCode.OK,
                 ordinal < 3 ? """{"status":"running"}""" : """{"status":"done"}"""));
 
-        Assert.Equal(SyncOutcome.Synced, await PumpToCompletionAsync(StartSync(client, Config()), TimeSpan.FromSeconds(1)));
+        Assert.Equal(SyncOutcome.Synced,
+            await PumpToCompletionAsync(StartSync(client, Config()), TimeSpan.FromSeconds(1)));
     }
 
     [Fact]
@@ -321,7 +375,7 @@ public class SubsyncClientTests
             if (path == "/sync")
                 return Created();
             if (path.EndsWith("/cancel", StringComparison.Ordinal))
-                return FakeHttpMessageHandler.Status(HttpStatusCode.MethodNotAllowed);   // sidecar predates it
+                return FakeHttpMessageHandler.Status(HttpStatusCode.MethodNotAllowed); // sidecar predates it
             return JobStatus("queued");
         });
 
@@ -362,7 +416,9 @@ public class SubsyncClientTests
     {
         var (client, handler, factory) = Build((request, ordinal) => request.RequestUri!.AbsolutePath == "/sync"
             ? Created()
-            : ordinal < 4 ? JobStatus("running", runningSeconds: ordinal) : JobStatus("done"));
+            : ordinal < 4
+                ? JobStatus("running", runningSeconds: ordinal)
+                : JobStatus("done"));
 
         await PumpToCompletionAsync(StartSync(client, Config()), TimeSpan.FromSeconds(1));
 
