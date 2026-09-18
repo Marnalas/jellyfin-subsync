@@ -157,6 +157,51 @@ def test_extra_args_are_appended_to_the_command(run_sync, fake_ffsubsync, monkey
     assert fake_ffsubsync.option("--vad") == "webrtc x"
 
 
+def test_safety_defaults_are_passed_by_default(run_sync, fake_ffsubsync):
+    """Audio-only VAD and the low-quality guard go on every run unless the user
+    chose otherwise: ffsubsync's own default aligns against embedded subtitle
+    streams, and a forced-only stub makes that alignment garbage."""
+    run_sync()
+    assert fake_ffsubsync.option("--vad") == "webrtc"
+    assert "--skip-sync-on-low-quality" in fake_ffsubsync.argv
+
+
+# --- alignment metrics and the score gate ------------------------------------
+
+def test_done_job_carries_the_parsed_metrics(run_sync):
+    job = run_sync()
+    assert job["status"] == "done"
+    assert job["score"] == 33134.0
+    assert job["offset_seconds"] == 1.5
+    assert job["framerate_scale_factor"] == 1.0
+    assert job["low_quality"] is False
+
+
+def test_negative_score_fails_the_job_and_leaves_the_subtitle_alone(run_sync, library, monkeypatch):
+    """ffsubsync exits 0 even when its best alignment is anti-correlated, so the
+    score line is the only thing standing between a bad run and an overwritten
+    subtitle."""
+    monkeypatch.setenv("FAKE_FFSUBSYNC_NEGATIVE_SCORE", "1")
+    job = run_sync()
+    assert job["status"] == "failed"
+    assert "alignment rejected" in job["error"]
+    assert job["score"] == -72067.32
+    assert (library / "s.srt").read_bytes() == b"subs"
+    assert names(library) == ["s.srt", "v.mkv"]
+
+
+def test_low_quality_refusal_is_reported_as_failed(run_sync, library, monkeypatch):
+    """With --skip-sync-on-low-quality ffsubsync writes the original back and
+    exits 0. Reporting that as done would let the skip-cache pin an unsynced
+    file forever; failed lets the fail-cache retry and then give up."""
+    monkeypatch.setenv("FAKE_FFSUBSYNC_LOW_QUALITY", "1")
+    job = run_sync()
+    assert job["status"] == "failed"
+    assert job["low_quality"] is True
+    assert (library / "s.srt").read_bytes() == b"subs"
+    assert names(library) == ["s.srt", "v.mkv"]
+
+
 # --- KEEP_ORIGINAL_SUBTITLE_BACKUP -----------------------------------------
 
 def test_no_backup_is_kept_by_default(run_sync, library):

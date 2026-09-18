@@ -15,6 +15,7 @@ Endpoints:
 Jobs are processed by a pool of MAX_PARALLEL_JOBS worker threads.
 """
 import os
+import re
 import shlex
 import subprocess
 import threading
@@ -69,10 +70,54 @@ def _env_args(name: str) -> list[str]:
         return []
 
 
-# no --vad flag, so ffsubsync uses its default (webrtc). Switching to
-# GPU-accelerated silero VAD is a later, separate step once this known-working
-# baseline is confirmed running.
-FFSUBSYNC_EXTRA_ARGS = _env_args("FFSUBSYNC_EXTRA_ARGS")
+def _with_safety_defaults(user_args: list) -> list:
+    """Append the flags every unattended run should carry unless the user set
+    them. ffsubsync's own default VAD is `subs_then_webrtc`: when the video has
+    an embedded text subtitle stream it aligns against that instead of audio.
+    Forced-only tracks (signs, foreign lines - a few dozen cues) make that
+    alignment meaningless, and ffsubsync then shifts a good subtitle by up to
+    --max-offset-seconds with a negative score. Audio is the safer reference
+    for a sweep nobody is watching, so `--vad webrtc` goes on by default
+    (smacke/ffsubsync#238). `--skip-sync-on-low-quality` makes ffsubsync write
+    the original back instead of applying a negative-score shift; the sidecar
+    detects that below and fails the job so nothing is overwritten.
+    """
+    args = list(user_args)
+    if "--vad" not in args:
+        args += ["--vad", "webrtc"]
+    if "--skip-sync-on-low-quality" not in args:
+        args.append("--skip-sync-on-low-quality")
+    return args
+
+
+FFSUBSYNC_EXTRA_ARGS = _with_safety_defaults(_env_args("FFSUBSYNC_EXTRA_ARGS"))
+
+# ffsubsync exits 0 whether or not it trusted its own alignment, so the only
+# signal is what it logs: the last `score:` / `offset seconds:` / `framerate
+# scale factor:` lines, and the warning it prints when --skip-sync-on-low-quality
+# made it write the original back unchanged.
+_SCORE_RE = re.compile(r"score:\s*(-?[0-9.]+)")
+_OFFSET_RE = re.compile(r"offset seconds:\s*(-?[0-9.]+)")
+_SCALE_RE = re.compile(r"framerate scale factor:\s*([0-9.]+)")
+_LOW_QUALITY_MARK = "leaving subtitles unmodified"
+
+
+def _parse_ffsubsync_result(stderr: str) -> dict:
+    """Pull the alignment metrics out of ffsubsync's log output."""
+    def last(rx):
+        found = rx.findall(stderr)
+        if not found:
+            return None
+        try:
+            return float(found[-1])
+        except ValueError:
+            return None
+    return {
+        "score": last(_SCORE_RE),
+        "offset_seconds": last(_OFFSET_RE),
+        "framerate_scale_factor": last(_SCALE_RE),
+        "low_quality": _LOW_QUALITY_MARK in stderr,
+    }
 
 # ffsubsync only decodes the audio track (via ffmpeg), not the full video, so
 # it's light enough per-job to run several at once on a multi-core host.
@@ -258,6 +303,20 @@ def _run_ffsubsync(job_id: str, req: SyncRequest, timeout_seconds: int):
             _fail(job_id, f"ffsubsync exited {result.returncode}")
             return
 
+        metrics = _parse_ffsubsync_result(result.stderr)
+        score = metrics["score"]
+        if metrics["low_quality"] or (score is not None and score < 0):
+            # ffsubsync either refused the alignment itself or reported an
+            # anti-correlated one. Either way the shifted output is not worth
+            # more than the file the user already has, so leave it alone and
+            # let the plugin's fail-cache decide how often to retry.
+            with jobs_lock:
+                if job_id in jobs:
+                    jobs[job_id]["stderr"] = result.stderr[-2000:]
+                    jobs[job_id].update(metrics)
+            _fail(job_id, f"ffsubsync alignment rejected (score {score}); subtitle left untouched")
+            return
+
         with jobs_lock:
             cancelled = jobs.get(job_id, {}).get("cancel_requested", False)
         if cancelled:
@@ -284,6 +343,7 @@ def _run_ffsubsync(job_id: str, req: SyncRequest, timeout_seconds: int):
             # The tail of stderr is where ffsubsync reports the offset it
             # applied, which is the one line worth keeping from a good run.
             stderr=result.stderr[-1000:],
+            **metrics,
         )
         log.info("Job %s: done", job_id)
     finally:

@@ -148,3 +148,51 @@ def test_timeout_under_the_ceiling_passes_through():
 def test_timeout_over_the_ceiling_is_clamped():
     """A mistyped plugin setting must not pin a worker thread for a day."""
     assert app._effective_timeout(999_999) == app.MAX_JOB_TIMEOUT_SECONDS
+
+
+# --- _with_safety_defaults ---------------------------------------------------
+
+def test_safety_defaults_added_when_user_sets_nothing():
+    assert app._with_safety_defaults([]) == ["--vad", "webrtc", "--skip-sync-on-low-quality"]
+
+
+def test_user_vad_choice_is_respected():
+    args = app._with_safety_defaults(["--vad", "subs_then_webrtc"])
+    assert args.count("--vad") == 1
+    assert args[args.index("--vad") + 1] == "subs_then_webrtc"
+    assert "--skip-sync-on-low-quality" in args
+
+
+def test_user_low_quality_flag_is_not_duplicated():
+    args = app._with_safety_defaults(["--skip-sync-on-low-quality", "--min-score", "100"])
+    assert args.count("--skip-sync-on-low-quality") == 1
+    assert args[-3:] == ["--min-score", "100", "--vad"] or args[-2:] == ["--vad", "webrtc"]
+
+
+def test_extra_args_env_gets_the_safety_defaults(reloaded_app):
+    reloaded = reloaded_app(FFSUBSYNC_EXTRA_ARGS="--max-duration-seconds 1200")
+    assert reloaded.FFSUBSYNC_EXTRA_ARGS == [
+        "--max-duration-seconds", "1200", "--vad", "webrtc", "--skip-sync-on-low-quality",
+    ]
+
+
+# --- _parse_ffsubsync_result -------------------------------------------------
+
+def test_parse_reads_the_last_reported_values():
+    stderr = (
+        "INFO score: 12.000\nINFO offset seconds: 3.100\n"
+        "INFO score: -1398.000\nINFO offset seconds: 0.570\n"
+        "INFO framerate scale factor: 1.043\n"
+    )
+    assert app._parse_ffsubsync_result(stderr) == {
+        "score": -1398.0,
+        "offset_seconds": 0.57,
+        "framerate_scale_factor": 1.043,
+        "low_quality": False,
+    }
+
+
+def test_parse_tolerates_missing_lines():
+    assert app._parse_ffsubsync_result("nothing useful") == {
+        "score": None, "offset_seconds": None, "framerate_scale_factor": None, "low_quality": False,
+    }
