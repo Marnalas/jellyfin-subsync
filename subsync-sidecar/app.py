@@ -305,6 +305,7 @@ def _run_ffsubsync(job_id: str, req: SyncRequest, timeout_seconds: int):
         *extra_args,
     ]
 
+    log.info("Job %s: received %s", job_id, req.model_dump())
     log.info("Job %s: running %s (timeout %ds)", job_id, " ".join(cmd), timeout_seconds)
     # The finally is what keeps temp files from piling up: every early return
     # below leaves a partially written one behind otherwise, and the only path
