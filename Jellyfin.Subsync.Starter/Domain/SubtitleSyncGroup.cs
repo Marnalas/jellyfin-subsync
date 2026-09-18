@@ -1,6 +1,43 @@
 namespace Jellyfin.Subsync.Starter.Domain;
 
 /// <summary>
+/// What Jellyfin reports about a video's own embedded subtitle stream(s).
+/// A fact about the item, not an instruction - what (if anything) it implies
+/// for how the sidecar should align against the video is entirely the
+/// sidecar's call, not the plugin's. Only meaningful when the video itself
+/// is being used as the sync reference; see <see cref="Application.SubtitleSyncOrchestrator"/>.
+/// </summary>
+public enum EmbeddedSubtitleSituation
+{
+    /// <summary>
+    /// The default. Either this hasn't been computed (a group built outside
+    /// <see cref="Infrastructure.SubtitleWorkBuilder.BuildWork"/>), or the
+    /// video isn't the sync reference, so the situation doesn't apply to
+    /// this call at all - the sidecar always treats this the same as "no
+    /// opinion".
+    /// </summary>
+    Irrelevant = 0,
+
+    /// <summary>No embedded subtitle stream at all.</summary>
+    HasNoEmbeddedSubtitle = 1,
+
+    /// <summary>At least one embedded subtitle stream is a full, non-forced track.</summary>
+    HasFullEmbeddedSubtitles = 2,
+
+    /// <summary>Every embedded subtitle stream that exists is forced (a "forced-only stub").</summary>
+    HasOnlyForcedEmbeddedSubtitles = 3,
+
+    /// <summary>
+    /// No full text-based embedded stream exists, but exactly one embedded
+    /// PGS (image-based) subtitle stream does, and it isn't forced -
+    /// unambiguous enough to recommend as a reference. ffsubsync can align
+    /// against it via packet-display timing with no OCR; see ffsubsync's
+    /// --pgs-ref-stream.
+    /// </summary>
+    HasFullPgsEmbeddedSubtitles = 4
+}
+
+/// <summary>
 /// One video item and every external subtitle file Jellyfin has indexed for
 /// it that the plugin is willing to sync. All paths are Jellyfin-side
 /// absolutes, and every entry in <see cref="SubtitlePaths"/> lives in the
@@ -8,10 +45,24 @@ namespace Jellyfin.Subsync.Starter.Domain;
 /// single folder plus two filenames, so a cross-directory pair can't be
 /// expressed.
 /// </summary>
+/// <param name="EmbeddedSubtitleIndex">
+/// The specific embedded stream that justified
+/// <see cref="EmbeddedSubtitleSituation.HasFullEmbeddedSubtitles"/> or
+/// <see cref="EmbeddedSubtitleSituation.HasFullPgsEmbeddedSubtitles"/> -
+/// null for every other situation. Not <c>MediaStream.Index</c> (the
+/// stream's absolute position among every stream in the file); this is its
+/// 0-based rank among the video's own embedded subtitle streams only, text
+/// and bitmap codecs alike, in container order - the same numbering an
+/// ffmpeg stream specifier's per-type index means (what "s:1" in "0:s:1"
+/// refers to). Like the situation itself, a fact about the item for the
+/// sidecar to interpret, not an instruction.
+/// </param>
 internal sealed record SubtitleSyncGroup(
     string VideoPath,
     IReadOnlyList<string> SubtitlePaths,
-    IReadOnlySet<string>? ForcedSubtitlePaths = null);
+    IReadOnlySet<string>? ForcedSubtitlePaths = null,
+    EmbeddedSubtitleSituation EmbeddedSubtitleSituation = EmbeddedSubtitleSituation.Irrelevant,
+    int? EmbeddedSubtitleIndex = null);
 
 /// <summary>
 /// Why an item produced no group. Only used for logging - the sweep skips

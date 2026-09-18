@@ -44,19 +44,31 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-if [ -n "$FAKE_FFSUBSYNC_SLEEP" ]; then sleep "$FAKE_FFSUBSYNC_SLEEP"; fi
-
 # stdout: app.py keeps this only on failure, so its absence is assertable.
+# Written before the sleep below so a timeout test can assert this partial
+# output was captured (subprocess.run's TimeoutExpired carries whatever was
+# already written to the pipe at the moment of the kill).
 echo "scanning audio track"
+
+if [ -n "$FAKE_FFSUBSYNC_SLEEP" ]; then sleep "$FAKE_FFSUBSYNC_SLEEP"; fi
 
 if [ "$FAKE_FFSUBSYNC_FAIL" = "1" ]; then
   echo "boom: could not parse subtitle" >&2
   exit 3
 fi
 
-# stderr: the real ffsubsync reports the applied offset here, and app.py keeps
-# the tail of it on success for exactly that reason.
+# stderr: the real ffsubsync reports the score and applied offset here; app.py
+# parses them and keeps the tail of it on success for exactly that reason.
+if [ "$FAKE_FFSUBSYNC_NEGATIVE_SCORE" = "1" ]; then
+  echo "score: -72067.320" >&2
+else
+  echo "score: 33134.000" >&2
+fi
 echo "offset seconds: 1.5" >&2
+echo "framerate scale factor: 1.000" >&2
+if [ "$FAKE_FFSUBSYNC_LOW_QUALITY" = "1" ]; then
+  echo "low-quality alignment (score 12.0 < 100.0); leaving subtitles unmodified" >&2
+fi
 
 if [ "$FAKE_FFSUBSYNC_NO_OUTPUT" != "1" ]; then printf 'SYNCED' > "$out"; fi
 """
@@ -166,13 +178,16 @@ def make_job():
 @pytest.fixture
 def run_sync(library, make_job):
     """Run `_run_ffsubsync` end to end against `library` and return the job."""
-    def _run(folder=None, reference="v.mkv", subtitle="s.srt", timeout=10, **fields):
+    def _run(folder=None, reference="v.mkv", subtitle="s.srt", timeout=10, embedded_subtitle_situation=None,
+             embedded_subtitle_index=None, **fields):
         job_id = make_job(timeout_seconds=timeout, **fields)
         request = app.SyncRequest(
             folder=str(library if folder is None else folder),
             reference_filename=reference,
             subtitle_filename=subtitle,
             timeout_seconds=timeout,
+            embedded_subtitle_situation=embedded_subtitle_situation,
+            embedded_subtitle_index=embedded_subtitle_index,
         )
         app._run_ffsubsync(job_id, request, timeout)
         return app.jobs[job_id]

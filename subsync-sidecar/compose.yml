@@ -1,8 +1,9 @@
 # Add this service to your existing docker-compose file (the same one that
-# defines `jellyfin`). No GPU reservation, no device passthrough - plain
-# ffsubsync (webrtc VAD) is CPU-only, so there's nothing here for a GPU to
-# accelerate right now. If you switch to silero/fused VAD later, that's the
-# point to add gpu reservation here.
+# defines `jellyfin`). No GPU reservation, no device passthrough - every VAD
+# backend this image ships (ffsubsync's own default, plus webrtc/auditok)
+# runs CPU-only, so there's nothing here for a GPU to accelerate right now.
+# If you switch to silero/fused VAD later, that's the point to add gpu
+# reservation here.
 
   subsync-sidecar:
     # Published image - no local build needed. Pin to a plugin version
@@ -16,9 +17,15 @@
     #                 # it over the internal docker network either way
     environment:
       # Any extra arg you want added to the ffsubsync commands (e.g.
-      # --max-duration-seconds, --extract-audio-first, --multi-segment-sync, etc
-      # Parsed with shell quoting rules, so an argument containing a space
-      # works if you quote it: --vad "webrtc x"
+      # --max-duration-seconds, --extract-audio-first, --multi-segment-sync,
+      # --skip-sync-on-low-quality, etc). Parsed with shell quoting rules, so
+      # an argument containing a space works if you quote it: --vad "webrtc x"
+      # Nothing is added here automatically. On a specific job, the sidecar
+      # may still decide on its own to use --vad webrtc, when the plugin
+      # reports that Jellyfin's subtitle metadata says the video's only
+      # embedded subtitle track is a forced-only stub - an explicit --vad
+      # set here always overrides that. See docs/CONFIGURATION.md for both
+      # of these.
       FFSUBSYNC_EXTRA_ARGS: ""
       # How many sync jobs run at once. Leave empty or set to 0
       # to auto-detect (cpu_count - 1); set explicitly if this container has a `--cpus`

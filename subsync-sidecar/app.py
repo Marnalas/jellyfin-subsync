@@ -15,6 +15,7 @@ Endpoints:
 Jobs are processed by a pool of MAX_PARALLEL_JOBS worker threads.
 """
 import os
+import re
 import shlex
 import subprocess
 import threading
@@ -69,10 +70,91 @@ def _env_args(name: str) -> list[str]:
         return []
 
 
-# no --vad flag, so ffsubsync uses its default (webrtc). Switching to
-# GPU-accelerated silero VAD is a later, separate step once this known-working
-# baseline is confirmed running.
 FFSUBSYNC_EXTRA_ARGS = _env_args("FFSUBSYNC_EXTRA_ARGS")
+
+# ffsubsync exits 0 whether or not it trusted its own alignment, so the only
+# signal is what it logs: the last `score:` / `offset seconds:` / `framerate
+# scale factor:` lines, and the warning it prints when --skip-sync-on-low-quality
+# made it write the original back unchanged.
+_SCORE_RE = re.compile(r"score:\s*(-?[0-9.]+)")
+_OFFSET_RE = re.compile(r"offset seconds:\s*(-?[0-9.]+)")
+_SCALE_RE = re.compile(r"framerate scale factor:\s*([0-9.]+)")
+_LOW_QUALITY_MARK = "leaving subtitles unmodified"
+
+
+def _parse_ffsubsync_result(stderr: str) -> dict:
+    """Pull the alignment metrics out of ffsubsync's log output."""
+    def last(rx):
+        found = rx.findall(stderr)
+        if not found:
+            return None
+        try:
+            return float(found[-1])
+        except ValueError:
+            return None
+    return {
+        "score": last(_SCORE_RE),
+        "offset_seconds": last(_OFFSET_RE),
+        "framerate_scale_factor": last(_SCALE_RE),
+        "low_quality": _LOW_QUALITY_MARK in stderr,
+    }
+
+
+_VAD_FLAGS = ("--vad",)
+_PGS_REF_STREAM_FLAGS = ("--pgs-ref-stream", "--pgsstream")
+_REFERENCE_STREAM_FLAGS = ("--reference-stream", "--refstream", "--reference-track", "--reftrack")
+
+
+def _has_any_flag(args, flag_names):
+    return any(flag in args for flag in flag_names)
+
+
+def _reference_args_for(embedded_subtitle_situation, embedded_subtitle_index, user_args):
+    """Translate what Jellyfin told the plugin about the video's own
+    embedded subtitle stream(s) into extra ffsubsync args - a decision that
+    belongs here, not in the plugin, which has no opinion on ffsubsync's
+    flags. Any flag this function might add that the user already set
+    themselves in FFSUBSYNC_EXTRA_ARGS always wins; nothing is added in that
+    case.
+
+    "forced_only": ffsubsync's own subs_then_webrtc default would otherwise
+    align against the forced-only stub, with nothing to lock onto - audio
+    VAD is safer. "full_pgs": no full text track exists, but there's one
+    unambiguous non-forced PGS track the plugin found - ffsubsync can align
+    against it via packet-display timing (--pgs-ref-stream), no OCR
+    involved. "full": a good text track exists - ffsubsync's own default
+    would otherwise pick a stream itself (by longest duration, unlogged and
+    unobservable), so when the plugin also told us exactly which stream that
+    is, pin it explicitly with --reference-stream rather than trust a choice
+    we can never see. Anything else - absent, "none", or a value this
+    sidecar doesn't recognize (an older sidecar talking to a newer plugin) -
+    is left alone. An index-less "full"/"full_pgs" (an older plugin that
+    predates this field) falls back to the prior behavior instead of
+    guessing.
+
+    embedded_subtitle_index is the stream's 0-based rank among the video's
+    own embedded subtitle streams only (ffmpeg's own per-type stream
+    numbering), not a raw ffprobe/container stream index - ffsubsync expects
+    it formatted as "s:<index>" (per --help: "0:s:0 uses the first subtitle
+    track... you may drop the leading 0: and write s:0"), not a bare number.
+    """
+    if embedded_subtitle_situation == "forced_only":
+        if _has_any_flag(user_args, _VAD_FLAGS):
+            return []
+        return ["--vad", "webrtc"]
+    if embedded_subtitle_situation == "full_pgs":
+        if _has_any_flag(user_args, _VAD_FLAGS + _PGS_REF_STREAM_FLAGS + _REFERENCE_STREAM_FLAGS):
+            return []
+        if embedded_subtitle_index is not None:
+            return ["--pgs-ref-stream", f"s:{embedded_subtitle_index}"]
+        return ["--pgs-ref-stream"]
+    if embedded_subtitle_situation == "full":
+        if embedded_subtitle_index is None:
+            return []
+        if _has_any_flag(user_args, _REFERENCE_STREAM_FLAGS):
+            return []
+        return ["--reference-stream", f"s:{embedded_subtitle_index}"]
+    return []
 
 # ffsubsync only decodes the audio track (via ffmpeg), not the full video, so
 # it's light enough per-job to run several at once on a multi-core host.
@@ -153,6 +235,27 @@ class SyncRequest(BaseModel):
     # older than 3.0.0.0, which had no say in it at all; None means
     # JOB_TIMEOUT_SECONDS. Capped by MAX_JOB_TIMEOUT_SECONDS either way.
     timeout_seconds: Optional[int] = None
+    # What Jellyfin told the plugin about the video's own embedded subtitle
+    # stream(s) - "none", "full", "forced_only" or "full_pgs" - or None when
+    # it doesn't apply (the sync reference isn't the video, or an older
+    # plugin that predates this field). A fact, not an instruction: what it
+    # implies for ffsubsync's own alignment strategy is this sidecar's call
+    # alone, made in _reference_args_for below. An unrecognized value (a
+    # newer plugin talking to an older sidecar) is treated the same as None
+    # rather than rejected, matching this file's general "never fail on the
+    # unexpected" posture.
+    embedded_subtitle_situation: Optional[str] = None
+    # The specific embedded stream that justified "full"/"full_pgs" above, or
+    # None when the situation doesn't name one - an older plugin, a situation
+    # that isn't "full"/"full_pgs", or ambiguity the plugin itself couldn't
+    # resolve. This is the stream's 0-based rank among the video's own
+    # embedded subtitle streams only, text and bitmap codecs alike, in
+    # container order - i.e. exactly the N in ffmpeg's own "s:N" stream
+    # specifier, not a MediaStream.Index (the stream's absolute position
+    # among every stream in the file, which ffsubsync's --reference-stream/
+    # --pgs-ref-stream don't accept on their own). Only consulted for those
+    # two situations, in _reference_args_for below.
+    embedded_subtitle_index: Optional[int] = None
 
 
 def _effective_timeout(requested: Optional[int]) -> int:
@@ -182,6 +285,17 @@ def _terminate(job_id: str, status: str, error: Optional[str] = None, **extra):
 def _fail(job_id: str, message: str):
     _terminate(job_id, "failed", error=message)
     log.error("Job %s: %s", job_id, message)
+
+
+def _log_full_ffsubsync_output(job_id: str, reason: str, stdout: str, stderr: str):
+    """Complete stdout/stderr for a failed run, logged in full - distinct from
+    the last-2000-char slice kept on the job dict for the /jobs/{id} response,
+    which is sized for API payloads, not for actually diagnosing a bad run.
+    """
+    log.error(
+        "Job %s: %s - full ffsubsync output follows\n--- stdout ---\n%s\n--- stderr ---\n%s",
+        job_id, reason, stdout or "(empty)", stderr or "(empty)",
+    )
 
 
 def _run_ffsubsync(job_id: str, req: SyncRequest, timeout_seconds: int):
@@ -222,14 +336,18 @@ def _run_ffsubsync(job_id: str, req: SyncRequest, timeout_seconds: int):
             _fail(job_id, f"Can't remove stale temp file {temp_out}: {e}")
             return
 
+    extra_args = list(FFSUBSYNC_EXTRA_ARGS)
+    extra_args += _reference_args_for(req.embedded_subtitle_situation, req.embedded_subtitle_index, extra_args)
+
     cmd = [
         "ffsubsync",
         str(reference_path),
         "-i", str(sub_path),
         "-o", str(temp_out),
-        *FFSUBSYNC_EXTRA_ARGS,
+        *extra_args,
     ]
 
+    log.info("Job %s: received %s", job_id, req.model_dump())
     log.info("Job %s: running %s (timeout %ds)", job_id, " ".join(cmd), timeout_seconds)
     # The finally is what keeps temp files from piling up: every early return
     # below leaves a partially written one behind otherwise, and the only path
@@ -237,7 +355,11 @@ def _run_ffsubsync(job_id: str, req: SyncRequest, timeout_seconds: int):
     try:
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_seconds)
-        except subprocess.TimeoutExpired:
+        except subprocess.TimeoutExpired as e:
+            # capture_output=True means whatever ffsubsync had written to
+            # stdout/stderr before the kill is still on the exception, even
+            # though the run never finished.
+            _log_full_ffsubsync_output(job_id, f"ffsubsync timed out after {timeout_seconds}s", e.stdout, e.stderr)
             _fail(job_id, f"ffsubsync timed out after {timeout_seconds}s")
             return
         except OSError as e:
@@ -255,9 +377,15 @@ def _run_ffsubsync(job_id: str, req: SyncRequest, timeout_seconds: int):
                 if job_id in jobs:
                     jobs[job_id]["stdout"] = result.stdout[-2000:]
                     jobs[job_id]["stderr"] = result.stderr[-2000:]
+            _log_full_ffsubsync_output(job_id, f"ffsubsync exited {result.returncode}", result.stdout, result.stderr)
             _fail(job_id, f"ffsubsync exited {result.returncode}")
             return
 
+        # Checked before any of the outcomes below get to set a status: a
+        # cancel that lands while the job was finishing always wins, per
+        # _terminate's own invariant. Skipping this first would let, say, a
+        # rejected-score outcome report "failed" for a job the plugin already
+        # gave up on and will never read the result of.
         with jobs_lock:
             cancelled = jobs.get(job_id, {}).get("cancel_requested", False)
         if cancelled:
@@ -267,6 +395,19 @@ def _run_ffsubsync(job_id: str, req: SyncRequest, timeout_seconds: int):
             # again - the exact loop this endpoint exists to prevent.
             _terminate(job_id, "cancelled", error="cancelled by the client before the subtitle was replaced")
             log.info("Job %s: cancelled after running; subtitle left untouched", job_id)
+            return
+
+        metrics = _parse_ffsubsync_result(result.stderr)
+        score = metrics["score"]
+        if metrics["low_quality"] or (score is not None and score < 0):
+            # ffsubsync either refused the alignment itself or reported an
+            # anti-correlated one. Either way the shifted output is not worth
+            # more than the file the user already has, so leave it alone and
+            # let the plugin's fail-cache decide how often to retry.
+            message = f"ffsubsync alignment rejected (score {score}); subtitle left untouched"
+            _log_full_ffsubsync_output(job_id, message, result.stdout, result.stderr)
+            _terminate(job_id, "failed", error=message, stderr=result.stderr[-2000:], **metrics)
+            log.error("Job %s: %s", job_id, message)
             return
 
         try:
@@ -284,6 +425,7 @@ def _run_ffsubsync(job_id: str, req: SyncRequest, timeout_seconds: int):
             # The tail of stderr is where ffsubsync reports the offset it
             # applied, which is the one line worth keeping from a good run.
             stderr=result.stderr[-1000:],
+            **metrics,
         )
         log.info("Job %s: done", job_id)
     finally:

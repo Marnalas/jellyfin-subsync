@@ -34,16 +34,19 @@ public sealed class SubtitleSyncOrchestratorTests : IDisposable
 
     private sealed class FakeSubsyncClient(SyncOutcome outcome) : ISubsyncClient
     {
-        public List<(string Folder, string Reference, string Subtitle)> Calls { get; } = [];
+        public List<(string Folder, string Reference, string Subtitle, EmbeddedSubtitleSituation Situation,
+            int? EmbeddedIndex)> Calls { get; } = [];
 
         public Task<bool> IsHealthyAsync(PluginConfiguration config, CancellationToken cancellationToken) =>
             Task.FromResult(true);
 
         public Task<SyncOutcome> SyncAndWaitAsync(
             PluginConfiguration config, string folder, string referenceFilename, string subtitleFilename,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            EmbeddedSubtitleSituation embeddedSubtitleSituation = EmbeddedSubtitleSituation.Irrelevant,
+            int? embeddedSubtitleIndex = null)
         {
-            Calls.Add((folder, referenceFilename, subtitleFilename));
+            Calls.Add((folder, referenceFilename, subtitleFilename, embeddedSubtitleSituation, embeddedSubtitleIndex));
             return Task.FromResult(outcome);
         }
     }
@@ -243,7 +246,7 @@ public sealed class SubtitleSyncOrchestratorTests : IDisposable
         await orchestrator.ProcessAsync(
             Config(), new SubtitleSyncGroup(video, [subtitle]), subtitle, CancellationToken.None);
 
-        var (folder, reference, sub) = Assert.Single(client.Calls);
+        var (folder, reference, sub, _, _) = Assert.Single(client.Calls);
         Assert.Equal("/media/sidecar", folder);
         Assert.Equal("Movie.mkv", reference);
         Assert.Equal("Movie.en.srt", sub);
@@ -269,7 +272,7 @@ public sealed class SubtitleSyncOrchestratorTests : IDisposable
         await orchestrator.ProcessAsync(
             Config(), new SubtitleSyncGroup(video, [synced, pending]), pending, CancellationToken.None);
 
-        var (_, reference, sub) = Assert.Single(client.Calls);
+        var (_, reference, sub, _, _) = Assert.Single(client.Calls);
         Assert.Equal("Movie.en.srt", reference);
         Assert.Equal("Movie.fr.srt", sub);
     }
@@ -296,9 +299,99 @@ public sealed class SubtitleSyncOrchestratorTests : IDisposable
             Config(), new SubtitleSyncGroup(video, [synced, pending]), pending, CancellationToken.None,
             referencePathOverride: video);
 
-        var (_, reference, sub) = Assert.Single(client.Calls);
+        var (_, reference, sub, _, _) = Assert.Single(client.Calls);
         Assert.Equal("Movie.mkv", reference);
         Assert.Equal("Movie.fr.srt", sub);
+    }
+
+    /// <summary>
+    /// The one case the embedded-subtitle-situation report exists for: the
+    /// video is the reference (no already-synced sibling to align against
+    /// instead), so whatever <see cref="SubtitleWorkBuilder.BuildWork"/>
+    /// determined the item's embedded subtitle stream(s) look like flows
+    /// through unchanged - situation and index alike. What the sidecar does
+    /// with that fact is entirely its own call - the orchestrator's job
+    /// stops at reporting it accurately.
+    /// </summary>
+    [Theory]
+    [InlineData(EmbeddedSubtitleSituation.HasOnlyForcedEmbeddedSubtitles, null)]
+    [InlineData(EmbeddedSubtitleSituation.HasFullEmbeddedSubtitles, 2)]
+    [InlineData(EmbeddedSubtitleSituation.HasFullPgsEmbeddedSubtitles, 3)]
+    public async Task VideoReference_ReportsTheSituationAndIndexUnchanged(
+        EmbeddedSubtitleSituation situation, int? embeddedIndex)
+    {
+        var video = Write("Movie.mkv");
+        var subtitle = Write("Movie.en.srt");
+        var client = new FakeSubsyncClient(SyncOutcome.Synced);
+        var orchestrator = new SubtitleSyncOrchestrator(client, new FakeSkipCache(), new FakeFailCache(),
+            NullLogger.Instance, new FakeFolderChangeSuppressor());
+
+        await orchestrator.ProcessAsync(
+            Config(),
+            new SubtitleSyncGroup(video, [subtitle], EmbeddedSubtitleSituation: situation,
+                EmbeddedSubtitleIndex: embeddedIndex),
+            subtitle,
+            CancellationToken.None);
+
+        var (_, _, _, reportedSituation, reportedIndex) = Assert.Single(client.Calls);
+        Assert.Equal(situation, reportedSituation);
+        Assert.Equal(embeddedIndex, reportedIndex);
+    }
+
+    /// <summary>
+    /// The embedded subtitle situation only matters when the sidecar would
+    /// otherwise be deciding on its own what to align against - it has no
+    /// bearing on anything when the reference is another subtitle file, so
+    /// <see cref="EmbeddedSubtitleSituation.Irrelevant"/> (and a null index)
+    /// is reported instead of the group's real facts, regardless of what
+    /// they are.
+    /// </summary>
+    [Theory]
+    [InlineData(EmbeddedSubtitleSituation.HasOnlyForcedEmbeddedSubtitles, null)]
+    [InlineData(EmbeddedSubtitleSituation.HasFullPgsEmbeddedSubtitles, 3)]
+    public async Task SiblingReference_ReportsIrrelevantRegardlessOfSituation(
+        EmbeddedSubtitleSituation situation, int? embeddedIndex)
+    {
+        var video = Write("Movie.mkv");
+        var synced = Write("Movie.en.srt");
+        var pending = Write("Movie.fr.srt");
+        var client = new FakeSubsyncClient(SyncOutcome.Synced);
+        var skipCache = new FakeSkipCache();
+        skipCache.Synced.Add(synced);
+        var orchestrator = new SubtitleSyncOrchestrator(client, skipCache, new FakeFailCache(), NullLogger.Instance,
+            new FakeFolderChangeSuppressor());
+
+        await orchestrator.ProcessAsync(
+            Config(),
+            new SubtitleSyncGroup(video, [synced, pending], EmbeddedSubtitleSituation: situation,
+                EmbeddedSubtitleIndex: embeddedIndex),
+            pending,
+            CancellationToken.None);
+
+        var (_, _, _, reportedSituation, reportedIndex) = Assert.Single(client.Calls);
+        Assert.Equal(EmbeddedSubtitleSituation.Irrelevant, reportedSituation);
+        Assert.Null(reportedIndex);
+    }
+
+    /// <summary>
+    /// A video reference with no forced-only-stub situation on the group
+    /// reports the group's own (default) fact - here, that the situation was
+    /// never computed to anything but the record's default.
+    /// </summary>
+    [Fact]
+    public async Task VideoReferenceWithDefaultEmbeddedSituation_ReportsIrrelevant()
+    {
+        var video = Write("Movie.mkv");
+        var subtitle = Write("Movie.en.srt");
+        var client = new FakeSubsyncClient(SyncOutcome.Synced);
+        var orchestrator = new SubtitleSyncOrchestrator(client, new FakeSkipCache(), new FakeFailCache(),
+            NullLogger.Instance, new FakeFolderChangeSuppressor());
+
+        await orchestrator.ProcessAsync(
+            Config(), new SubtitleSyncGroup(video, [subtitle]), subtitle, CancellationToken.None);
+
+        var (_, _, _, situation, _) = Assert.Single(client.Calls);
+        Assert.Equal(EmbeddedSubtitleSituation.Irrelevant, situation);
     }
 
     /// <summary>
@@ -398,7 +491,9 @@ public sealed class SubtitleSyncOrchestratorTests : IDisposable
 
         public Task<SyncOutcome> SyncAndWaitAsync(
             PluginConfiguration config, string folder, string referenceFilename, string subtitleFilename,
-            CancellationToken cancellationToken) =>
+            CancellationToken cancellationToken,
+            EmbeddedSubtitleSituation embeddedSubtitleSituation = EmbeddedSubtitleSituation.Irrelevant,
+            int? embeddedSubtitleIndex = null) =>
             throw new InvalidOperationException("sidecar exploded");
     }
 
@@ -411,7 +506,9 @@ public sealed class SubtitleSyncOrchestratorTests : IDisposable
 
         public Task<SyncOutcome> SyncAndWaitAsync(
             PluginConfiguration config, string folder, string referenceFilename, string subtitleFilename,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            EmbeddedSubtitleSituation embeddedSubtitleSituation = EmbeddedSubtitleSituation.Irrelevant,
+            int? embeddedSubtitleIndex = null)
         {
             ActiveFoldersDuringCall.AddRange(suppressor.ActiveFolders);
             return Task.FromResult(SyncOutcome.Synced);

@@ -76,6 +76,19 @@ internal class SubtitleSyncOrchestrator(
             group,
             candidate => File.Exists(candidate) && skipCache.IsCached(candidate));
 
+        // Only meaningful when the sidecar would be deciding on its own what
+        // to align against - i.e. the reference is the video, not an
+        // already-synced sibling subtitle, where a sidecar-side alignment
+        // choice has no effect at all. Whatever this fact implies for the
+        // sidecar's own alignment strategy is entirely its call; the plugin
+        // only reports what Jellyfin told it.
+        var embeddedSubtitleSituation = referencePath == group.VideoPath
+            ? group.EmbeddedSubtitleSituation
+            : EmbeddedSubtitleSituation.Irrelevant;
+        var embeddedSubtitleIndex = referencePath == group.VideoPath
+            ? group.EmbeddedSubtitleIndex
+            : null;
+
         var subtitleMapping = SubtitleMatcher.ToSidecarAbsolute(subtitlePath, config);
         var referenceFileMapping = SubtitleMatcher.ToSidecarAbsolute(referencePath, config);
         if (subtitleMapping is null || referenceFileMapping is null)
@@ -97,7 +110,8 @@ internal class SubtitleSyncOrchestrator(
         using (suppressor.Suppress(subtitleDirectory))
         {
             var outcome = await client
-                .SyncAndWaitAsync(config, folder, referenceFilename, subtitleFilename, cancellationToken)
+                .SyncAndWaitAsync(config, folder, referenceFilename, subtitleFilename, cancellationToken,
+                    embeddedSubtitleSituation, embeddedSubtitleIndex)
                 .ConfigureAwait(false);
 
             // Only a confirmed sync is recorded. A job we timed out on or
