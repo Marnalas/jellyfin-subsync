@@ -76,16 +76,15 @@ internal class SubtitleSyncOrchestrator(
             group,
             candidate => File.Exists(candidate) && skipCache.IsCached(candidate));
 
-        // Only relevant when the sidecar would otherwise decide for itself
-        // what to align against - i.e. the reference is the video, not an
-        // already-synced sibling subtitle, where --vad has no effect at all.
-        // "webrtc" is asked for only when this item's embedded subtitle
-        // stream(s) are a forced-only stub Jellyfin already told us about;
-        // every other case leaves ffsubsync's own default (or the sidecar's
-        // own FFSUBSYNC_EXTRA_ARGS) untouched.
-        var vad = referencePath == group.VideoPath && group.EmbeddedSubtitleIsForcedOnlyStub
-            ? "webrtc"
-            : null;
+        // Only meaningful when the sidecar would be deciding on its own what
+        // to align against - i.e. the reference is the video, not an
+        // already-synced sibling subtitle, where a sidecar-side alignment
+        // choice has no effect at all. Whatever this fact implies for the
+        // sidecar's own alignment strategy is entirely its call; the plugin
+        // only reports what Jellyfin told it.
+        var embeddedSubtitleSituation = referencePath == group.VideoPath
+            ? group.EmbeddedSubtitleSituation
+            : EmbeddedSubtitleSituation.Irrelevant;
 
         var subtitleMapping = SubtitleMatcher.ToSidecarAbsolute(subtitlePath, config);
         var referenceFileMapping = SubtitleMatcher.ToSidecarAbsolute(referencePath, config);
@@ -108,7 +107,8 @@ internal class SubtitleSyncOrchestrator(
         using (suppressor.Suppress(subtitleDirectory))
         {
             var outcome = await client
-                .SyncAndWaitAsync(config, folder, referenceFilename, subtitleFilename, cancellationToken, vad)
+                .SyncAndWaitAsync(config, folder, referenceFilename, subtitleFilename, cancellationToken,
+                    embeddedSubtitleSituation)
                 .ConfigureAwait(false);
 
             // Only a confirmed sync is recorded. A job we timed out on or

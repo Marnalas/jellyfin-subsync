@@ -154,8 +154,9 @@ def test_timeout_over_the_ceiling_is_clamped():
 
 def test_extra_args_env_is_used_as_is_with_nothing_added(reloaded_app):
     """The sidecar no longer appends anything of its own - FFSUBSYNC_EXTRA_ARGS
-    is exactly what the user configured, and any per-job --vad hint is applied
-    later, per request, in _run_ffsubsync rather than baked into this constant."""
+    is exactly what the user configured, and any --vad override implied by
+    the plugin's reported embedded_subtitle_situation is applied later, per
+    request, in _run_ffsubsync rather than baked into this constant."""
     reloaded = reloaded_app(FFSUBSYNC_EXTRA_ARGS="--max-duration-seconds 1200")
     assert reloaded.FFSUBSYNC_EXTRA_ARGS == ["--max-duration-seconds", "1200"]
 
@@ -185,3 +186,20 @@ def test_parse_tolerates_missing_lines():
     assert app._parse_ffsubsync_result("nothing useful") == {
         "score": None, "offset_seconds": None, "framerate_scale_factor": None, "low_quality": False,
     }
+
+
+# --- _vad_override_for -------------------------------------------------------
+
+def test_forced_only_situation_maps_to_webrtc():
+    """The one situation ffsubsync's own subs_then_webrtc default gets wrong:
+    nothing to lock onto if the only embedded track(s) are forced-only stubs."""
+    assert app._vad_override_for("forced_only") == "webrtc"
+
+
+@pytest.mark.parametrize("situation", ["full", "none", None, "some_future_value_this_sidecar_predates"])
+def test_every_other_situation_leaves_vad_alone(situation):
+    """A full embedded track and no embedded track are both cases ffsubsync's
+    own default already handles correctly. An unrecognized value - a newer
+    plugin talking to an older sidecar - is treated the same as absent rather
+    than raising, matching this file's general posture on unexpected input."""
+    assert app._vad_override_for(situation) is None

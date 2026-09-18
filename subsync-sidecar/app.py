@@ -99,6 +99,20 @@ def _parse_ffsubsync_result(stderr: str) -> dict:
         "low_quality": _LOW_QUALITY_MARK in stderr,
     }
 
+
+def _vad_override_for(embedded_subtitle_situation):
+    """Translate what Jellyfin told the plugin about the video's own
+    embedded subtitle stream(s) into ffsubsync's --vad flag - a decision that
+    belongs here, not in the plugin, which has no opinion on ffsubsync's VAD
+    backends. Only "forced_only" needs an override: ffsubsync's own
+    subs_then_webrtc default already does the right thing for "none" (falls
+    back to webrtc on its own) and "full" (a legitimate embedded track is
+    worth aligning against). Anything else - absent, or a value this sidecar
+    doesn't recognize (an older sidecar talking to a newer plugin) - is left
+    alone.
+    """
+    return "webrtc" if embedded_subtitle_situation == "forced_only" else None
+
 # ffsubsync only decodes the audio track (via ffmpeg), not the full video, so
 # it's light enough per-job to run several at once on a multi-core host.
 # Leave one core free by default for the rest of the system (Jellyfin
@@ -178,13 +192,16 @@ class SyncRequest(BaseModel):
     # older than 3.0.0.0, which had no say in it at all; None means
     # JOB_TIMEOUT_SECONDS. Capped by MAX_JOB_TIMEOUT_SECONDS either way.
     timeout_seconds: Optional[int] = None
-    # A value for ffsubsync's own --vad flag (e.g. "webrtc"), sent by a
-    # plugin that has determined - from Jellyfin's stream metadata, which
-    # this sidecar never sees - that ffsubsync's own subs_then_webrtc default
-    # would align against an embedded subtitle stream not worth trusting
-    # (e.g. a forced-only stub). Ignored when the user's own
-    # FFSUBSYNC_EXTRA_ARGS already sets --vad, which always wins.
-    vad: Optional[str] = None
+    # What Jellyfin told the plugin about the video's own embedded subtitle
+    # stream(s) - "none", "full" or "forced_only" - or None when it doesn't
+    # apply (the sync reference isn't the video, or an older plugin that
+    # predates this field). A fact, not an instruction: what it implies for
+    # ffsubsync's own alignment strategy is this sidecar's call alone, made
+    # in _vad_override_for below. An unrecognized value (a newer plugin
+    # talking to an older sidecar) is treated the same as None rather than
+    # rejected, matching this file's general "never fail on the unexpected"
+    # posture.
+    embedded_subtitle_situation: Optional[str] = None
 
 
 def _effective_timeout(requested: Optional[int]) -> int:
@@ -255,8 +272,9 @@ def _run_ffsubsync(job_id: str, req: SyncRequest, timeout_seconds: int):
             return
 
     extra_args = list(FFSUBSYNC_EXTRA_ARGS)
-    if req.vad and "--vad" not in extra_args:
-        extra_args += ["--vad", req.vad]
+    vad_override = _vad_override_for(req.embedded_subtitle_situation)
+    if vad_override and "--vad" not in extra_args:
+        extra_args += ["--vad", vad_override]
 
     cmd = [
         "ffsubsync",

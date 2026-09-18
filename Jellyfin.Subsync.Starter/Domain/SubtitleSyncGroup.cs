@@ -1,6 +1,34 @@
 namespace Jellyfin.Subsync.Starter.Domain;
 
 /// <summary>
+/// What Jellyfin reports about a video's own embedded subtitle stream(s).
+/// A fact about the item, not an instruction - what (if anything) it implies
+/// for how the sidecar should align against the video is entirely the
+/// sidecar's call, not the plugin's. Only meaningful when the video itself
+/// is being used as the sync reference; see <see cref="Application.SubtitleSyncOrchestrator"/>.
+/// </summary>
+public enum EmbeddedSubtitleSituation
+{
+    /// <summary>
+    /// The default. Either this hasn't been computed (a group built outside
+    /// <see cref="Infrastructure.SubtitleWorkBuilder.BuildWork"/>), or the
+    /// video isn't the sync reference, so the situation doesn't apply to
+    /// this call at all - the sidecar always treats this the same as "no
+    /// opinion".
+    /// </summary>
+    Irrelevant = 0,
+
+    /// <summary>No embedded subtitle stream at all.</summary>
+    HasNoEmbeddedSubtitle = 1,
+
+    /// <summary>At least one embedded subtitle stream is a full, non-forced track.</summary>
+    HasFullEmbeddedSubtitles = 2,
+
+    /// <summary>Every embedded subtitle stream that exists is forced (a "forced-only stub").</summary>
+    HasOnlyForcedEmbeddedSubtitles = 3
+}
+
+/// <summary>
 /// One video item and every external subtitle file Jellyfin has indexed for
 /// it that the plugin is willing to sync. All paths are Jellyfin-side
 /// absolutes, and every entry in <see cref="SubtitlePaths"/> lives in the
@@ -8,20 +36,11 @@ namespace Jellyfin.Subsync.Starter.Domain;
 /// single folder plus two filenames, so a cross-directory pair can't be
 /// expressed.
 /// </summary>
-/// <param name="EmbeddedSubtitleIsForcedOnlyStub">
-/// True when the item has at least one embedded (non-external) subtitle
-/// stream and every one of them is forced - the "only embedded track is
-/// a forced-only stub" scenario ffsubsync's own subs_then_webrtc default
-/// can't align against. False when there's no embedded subtitle at all
-/// (ffsubsync's default already falls back to audio on its own) or when
-/// at least one embedded track is a full, non-forced subtitle (a
-/// legitimate reference ffsubsync's default should be left to use).
-/// </param>
 internal sealed record SubtitleSyncGroup(
     string VideoPath,
     IReadOnlyList<string> SubtitlePaths,
     IReadOnlySet<string>? ForcedSubtitlePaths = null,
-    bool EmbeddedSubtitleIsForcedOnlyStub = false);
+    EmbeddedSubtitleSituation EmbeddedSubtitleSituation = EmbeddedSubtitleSituation.Irrelevant);
 
 /// <summary>
 /// Why an item produced no group. Only used for logging - the sweep skips

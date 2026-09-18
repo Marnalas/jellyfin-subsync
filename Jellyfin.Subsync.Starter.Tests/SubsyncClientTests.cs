@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text.Json;
 using Jellyfin.Subsync.Starter.Configuration;
+using Jellyfin.Subsync.Starter.Domain;
 using Jellyfin.Subsync.Starter.Infrastructure;
 using Jellyfin.Subsync.Starter.Tests.TestDoubles;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -117,13 +118,14 @@ public class SubsyncClientTests
     }
 
     /// <summary>
-    /// The orchestrator only ever passes a vad hint for the specific
-    /// forced-only-embedded-stub case; most jobs pass none, and the sidecar
-    /// must see that as absent (null), not as an empty or missing-but-present
-    /// property some serializer configuration could turn into "".
+    /// The orchestrator only ever passes a real situation for the specific
+    /// video-reference case; most jobs pass <see cref="EmbeddedSubtitleSituation.Irrelevant"/>
+    /// (the default), and the sidecar must see that as absent (null), not as
+    /// an empty or missing-but-present property some serializer
+    /// configuration could turn into "".
     /// </summary>
     [Fact]
-    public async Task Submit_OmitsVadWhenNoneIsGiven()
+    public async Task Submit_OmitsEmbeddedSubtitleSituationWhenIrrelevant()
     {
         var (client, handler, _) = Build((request, _) =>
             request.RequestUri!.AbsolutePath == "/sync" ? Created() : JobStatus("done"));
@@ -131,27 +133,29 @@ public class SubsyncClientTests
         await PumpToCompletionAsync(StartSync(client, Config()), TimeSpan.FromSeconds(1));
 
         var submitted = JsonSerializer.Deserialize<JsonElement>(handler.Requests[0].Body!);
-        Assert.True(submitted.TryGetProperty("vad", out var vad));
-        Assert.Equal(JsonValueKind.Null, vad.ValueKind);
+        Assert.True(submitted.TryGetProperty("embedded_subtitle_situation", out var situation));
+        Assert.Equal(JsonValueKind.Null, situation.ValueKind);
     }
 
     /// <summary>
-    /// The per-job VAD hint reaches the sidecar as-is when the orchestrator
-    /// supplies one (a forced-only-stub embedded track).
+    /// A real situation reaches the sidecar under its wire name when the
+    /// orchestrator supplies one (a forced-only-stub embedded track). The
+    /// wire vocabulary ("forced_only") is deliberately not the domain enum's
+    /// own member name - see <c>SubsyncClient.ToWireValue</c>.
     /// </summary>
     [Fact]
-    public async Task Submit_SendsTheRequestedVad()
+    public async Task Submit_SendsTheEmbeddedSubtitleSituationUnderItsWireName()
     {
         var (client, handler, _) = Build((request, _) =>
             request.RequestUri!.AbsolutePath == "/sync" ? Created() : JobStatus("done"));
 
         await PumpToCompletionAsync(
             client.SyncAndWaitAsync(Config(), "/media/films/Movie", "Movie.mkv", "Movie.en.srt",
-                CancellationToken.None, vad: "webrtc"),
+                CancellationToken.None, EmbeddedSubtitleSituation.HasOnlyForcedEmbeddedSubtitles),
             TimeSpan.FromSeconds(1));
 
         var submitted = JsonSerializer.Deserialize<JsonElement>(handler.Requests[0].Body!);
-        Assert.Equal("webrtc", submitted.GetProperty("vad").GetString());
+        Assert.Equal("forced_only", submitted.GetProperty("embedded_subtitle_situation").GetString());
     }
 
     [Fact]

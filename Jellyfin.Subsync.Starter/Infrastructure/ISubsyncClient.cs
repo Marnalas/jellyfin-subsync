@@ -54,12 +54,13 @@ public interface ISubsyncClient
     /// <param name="referenceFilename">What to align the subtitle against.</param>
     /// <param name="subtitleFilename">The subtitle file to align and overwrite.</param>
     /// <param name="cancellationToken">Cancels the submit-and-poll round trip.</param>
-    /// <param name="vad">
-    /// A value for ffsubsync's own --vad flag (e.g. "webrtc"), or null to
-    /// leave ffsubsync's default (or the sidecar's own FFSUBSYNC_EXTRA_ARGS
-    /// configuration) alone. Set only when this plugin has determined, from
-    /// Jellyfin's stream metadata, that the default isn't safe for this
-    /// particular job - see <see cref="SubtitleSyncGroup.EmbeddedSubtitleIsForcedOnlyStub"/>.
+    /// <param name="embeddedSubtitleSituation">
+    /// What Jellyfin reports about the video's own embedded subtitle
+    /// stream(s) - a fact from Jellyfin's data, not an instruction. What (if
+    /// anything) it implies for the sidecar's own alignment strategy is the
+    /// sidecar's call, not this plugin's. <see cref="EmbeddedSubtitleSituation.Irrelevant"/>
+    /// (the default) when <paramref name="referenceFilename"/> isn't the
+    /// video, where it has no bearing on anything the sidecar does.
     /// </param>
     Task<SyncOutcome> SyncAndWaitAsync(
         PluginConfiguration config,
@@ -67,5 +68,5 @@ public interface ISubsyncClient
         string referenceFilename,
         string subtitleFilename,
         CancellationToken cancellationToken,
-        string? vad = null);
+        EmbeddedSubtitleSituation embeddedSubtitleSituation = EmbeddedSubtitleSituation.Irrelevant);
 }

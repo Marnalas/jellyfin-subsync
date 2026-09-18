@@ -65,32 +65,36 @@ A few flags that make sense in this plugin's context:
   lower it to fail fast instead of risking an alignment to a coincidental
   match far from where the real one is.
 - **`--vad` - swap the voice-activity detector.** The sidecar itself never
-  adds this - it runs whatever `FFSUBSYNC_EXTRA_ARGS` says, nothing more.
+  adds this on its own - it runs whatever `FFSUBSYNC_EXTRA_ARGS` says, nothing
+  more, and has no opinion of its own about which VAD backend to use.
   ffsubsync's own default is `subs_then_webrtc`: when the video carries an
   embedded text subtitle stream it aligns against that stream instead of the
   audio, which is usually the *better* choice (no audio extraction, no VAD
-  false-positives on noisy mixes or sparse dialogue). The plugin only steps
-  in for the one case that default gets wrong: when Jellyfin reports that an
-  item's embedded subtitle stream(s) are **all forced** (signs/foreign lines,
-  a few dozen cues - a forced-only stub with nothing for subs-based alignment
-  to lock onto). ffsubsync would otherwise shift a good subtitle by up to
-  `--max-offset-seconds` with a negative score
-  ([smacke/ffsubsync#238](https://github.com/smacke/ffsubsync/issues/238)).
-  In that specific situation, and only when the subtitle being synced has no
+  false-positives on noisy mixes or sparse dialogue). What the sidecar *does*
+  do is act on a fact the plugin reports with every sync job: what Jellyfin
+  knows about the video's own embedded subtitle stream(s) - none, a full
+  track, or **all forced** (signs/foreign lines, a few dozen cues - a
+  forced-only stub with nothing for subs-based alignment to lock onto). The
+  plugin only ever reports this when the subtitle being synced has no
   already-synced sibling to align against instead (i.e. the sidecar would be
-  aligning against the video itself), the plugin asks the sidecar to use
-  `--vad webrtc` for that one job. Every other case - no embedded subtitle at
-  all, or at least one full/non-forced embedded track - leaves ffsubsync's
-  own default alone. An explicit `--vad ...` in `FFSUBSYNC_EXTRA_ARGS` always
-  wins over the plugin's per-job request, so you can override the backend
-  globally regardless: `--vad auditok` is a CPU-only alternative if webrtc
-  struggles on a particular library, and `--vad subs_then_webrtc` pins
-  ffsubsync's own default even for a forced-only-stub item, if you'd rather
-  have that. The `silero` and `fused*` backends need the optional `torch`
-  dependency, which the published sidecar image does not install (no GPU base
-  image, per the sidecar's Dockerfile) - they'll fail on an unmodified image.
+  aligning against the video itself) - otherwise a placeholder "irrelevant"
+  value is sent, since VAD has no effect when the reference is another
+  subtitle file. When the sidecar sees the forced-only-stub case, it's the
+  one that decides that means `--vad webrtc`: ffsubsync would otherwise shift
+  a good subtitle by up to `--max-offset-seconds` with a negative score
+  ([smacke/ffsubsync#238](https://github.com/smacke/ffsubsync/issues/238)).
+  Every other report - no embedded subtitle at all, or at least one
+  full/non-forced embedded track - leaves ffsubsync's own default alone. An
+  explicit `--vad ...` in `FFSUBSYNC_EXTRA_ARGS` always wins over what the
+  sidecar would otherwise decide, so you can override the backend globally
+  regardless: `--vad auditok` is a CPU-only alternative if webrtc struggles
+  on a particular library, and `--vad subs_then_webrtc` pins ffsubsync's own
+  default even for a forced-only-stub item, if you'd rather have that. The
+  `silero` and `fused*` backends need the optional `torch` dependency, which
+  the published sidecar image does not install (no GPU base image, per the
+  sidecar's Dockerfile) - they'll fail on an unmodified image.
 
-  **Version skew:** the per-job `--vad` request needs both a plugin and a
+  **Version skew:** the plugin's per-job report needs both a plugin and a
   sidecar new enough to speak it - an older sidecar ignores the field
   entirely (ffsubsync's own default applies, forced-only stubs and all), and
   an older plugin never sends it (same result). Nothing breaks either way,

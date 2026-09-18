@@ -322,32 +322,32 @@ public class SubtitleWorkBuilderTests
         Assert.Empty(work.SubtitlesInOtherDirectories);
     }
 
-    // --- G2. Embedded forced-only-stub detection -----------------------------
+    // --- G2. Embedded subtitle situation detection ---------------------------
 
     /// <summary>
-    /// <see cref="SubtitleSyncGroup.EmbeddedSubtitleIsForcedOnlyStub"/> is
-    /// what tells the orchestrator ffsubsync's own default alignment isn't
-    /// safe for this item - see <see cref="SubtitleWorkBuilder.ChooseReference"/>'s
-    /// caller. Embedded streams never affect which external subtitles get
-    /// synced (see <see cref="EmbeddedStream_IsIgnored"/>); these tests cover
-    /// only that separate signal.
+    /// <see cref="SubtitleSyncGroup.EmbeddedSubtitleSituation"/> is the fact
+    /// the orchestrator later reports to the sidecar - what it implies (if
+    /// anything) about ffsubsync's own default alignment is the sidecar's
+    /// call, not this method's. Embedded streams never affect which external
+    /// subtitles get synced (see <see cref="EmbeddedStream_IsIgnored"/>);
+    /// these tests cover only that separate signal.
     /// </summary>
     [Fact]
-    public void SoleEmbeddedStream_Forced_IsAForcedOnlyStub()
+    public void SoleEmbeddedStream_Forced_IsOnlyForcedEmbeddedSubtitles()
     {
         var work = Build("/m/Movie.mkv", External("/m/Movie.en.srt"), Embedded(isForced: true));
 
         Assert.NotNull(work.Group);
-        Assert.True(work.Group.EmbeddedSubtitleIsForcedOnlyStub);
+        Assert.Equal(EmbeddedSubtitleSituation.HasOnlyForcedEmbeddedSubtitles, work.Group.EmbeddedSubtitleSituation);
     }
 
     [Fact]
-    public void SoleEmbeddedStream_NotForced_IsNotAForcedOnlyStub()
+    public void SoleEmbeddedStream_NotForced_IsFullEmbeddedSubtitles()
     {
         var work = Build("/m/Movie.mkv", External("/m/Movie.en.srt"), Embedded(isForced: false));
 
         Assert.NotNull(work.Group);
-        Assert.False(work.Group.EmbeddedSubtitleIsForcedOnlyStub);
+        Assert.Equal(EmbeddedSubtitleSituation.HasFullEmbeddedSubtitles, work.Group.EmbeddedSubtitleSituation);
     }
 
     /// <summary>
@@ -355,7 +355,7 @@ public class SubtitleWorkBuilderTests
     /// default should be left to use, even alongside a forced one.
     /// </summary>
     [Fact]
-    public void MixOfForcedAndNonForcedEmbeddedStreams_IsNotAForcedOnlyStub()
+    public void MixOfForcedAndNonForcedEmbeddedStreams_IsFullEmbeddedSubtitles()
     {
         var work = Build(
             "/m/Movie.mkv",
@@ -364,7 +364,7 @@ public class SubtitleWorkBuilderTests
             Embedded(1, isForced: false));
 
         Assert.NotNull(work.Group);
-        Assert.False(work.Group.EmbeddedSubtitleIsForcedOnlyStub);
+        Assert.Equal(EmbeddedSubtitleSituation.HasFullEmbeddedSubtitles, work.Group.EmbeddedSubtitleSituation);
     }
 
     /// <summary>
@@ -373,12 +373,12 @@ public class SubtitleWorkBuilderTests
     /// against here.
     /// </summary>
     [Fact]
-    public void NoEmbeddedStream_IsNotAForcedOnlyStub()
+    public void NoEmbeddedStream_IsHasNoEmbeddedSubtitle()
     {
         var work = Build("/m/Movie.mkv", External("/m/Movie.en.srt"));
 
         Assert.NotNull(work.Group);
-        Assert.False(work.Group.EmbeddedSubtitleIsForcedOnlyStub);
+        Assert.Equal(EmbeddedSubtitleSituation.HasNoEmbeddedSubtitle, work.Group.EmbeddedSubtitleSituation);
     }
 
     // --- G. Ordering ---------------------------------------------------------

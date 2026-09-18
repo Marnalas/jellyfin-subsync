@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json.Serialization;
 using Jellyfin.Subsync.Starter.Configuration;
+using Jellyfin.Subsync.Starter.Domain;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Subsync.Starter.Infrastructure;
@@ -69,7 +70,7 @@ public sealed class SubsyncClient(
         string referenceFilename,
         string subtitleFilename,
         CancellationToken cancellationToken,
-        string? vad = null)
+        EmbeddedSubtitleSituation embeddedSubtitleSituation = EmbeddedSubtitleSituation.Irrelevant)
     {
         var baseUrl = config.SidecarUrl.TrimEnd('/');
         var requestedTimeout = Math.Max(1, config.JobTimeoutSeconds);
@@ -81,7 +82,9 @@ public sealed class SubsyncClient(
             using var http = CreateClient(config);
             using var response = await http.PostAsJsonAsync(
                 $"{baseUrl}/sync",
-                new SyncRequest(folder, referenceFilename, subtitleFilename, requestedTimeout, vad),
+                new SyncRequest(
+                    folder, referenceFilename, subtitleFilename, requestedTimeout,
+                    ToWireValue(embeddedSubtitleSituation)),
                 cancellationToken).ConfigureAwait(false);
 
             if ((int)response.StatusCode is >= 400 and < 500)
@@ -314,6 +317,22 @@ public sealed class SubsyncClient(
         }
     }
 
+    /// <summary>
+    /// The wire representation of <see cref="EmbeddedSubtitleSituation"/> -
+    /// a small, sidecar-facing vocabulary kept deliberately separate from
+    /// the domain enum, translated only here. Null (the sidecar's "no
+    /// opinion" case) for <see cref="EmbeddedSubtitleSituation.Irrelevant"/>;
+    /// a sidecar older than this protocol ignores the field entirely.
+    /// </summary>
+    private static string? ToWireValue(EmbeddedSubtitleSituation situation) => situation switch
+    {
+        EmbeddedSubtitleSituation.Irrelevant => null,
+        EmbeddedSubtitleSituation.HasNoEmbeddedSubtitle => "none",
+        EmbeddedSubtitleSituation.HasFullEmbeddedSubtitles => "full",
+        EmbeddedSubtitleSituation.HasOnlyForcedEmbeddedSubtitles => "forced_only",
+        _ => throw new ArgumentOutOfRangeException(nameof(situation), situation, null)
+    };
+
     private sealed record SyncRequest(
         [property: JsonPropertyName("folder")] string Folder,
         [property: JsonPropertyName("reference_filename")]
@@ -322,12 +341,13 @@ public sealed class SubsyncClient(
         string SubtitleFilename,
         [property: JsonPropertyName("timeout_seconds")]
         int TimeoutSeconds,
-        // Null unless this plugin determined the sidecar's default (or its
-        // own FFSUBSYNC_EXTRA_ARGS) isn't safe for this job - see
-        // ISubsyncClient.SyncAndWaitAsync's vad parameter. A sidecar older
-        // than this protocol ignores unknown fields, so this is harmless
-        // against one that predates it.
-        [property: JsonPropertyName("vad")] string? Vad = null);
+        // What Jellyfin reports about the video's own embedded subtitle
+        // stream(s) - see ISubsyncClient.SyncAndWaitAsync's
+        // embeddedSubtitleSituation parameter and ToWireValue above. A
+        // sidecar older than this protocol ignores unknown fields, so this
+        // is harmless against one that predates it.
+        [property: JsonPropertyName("embedded_subtitle_situation")]
+        string? EmbeddedSubtitleSituation = null);
 
     private sealed record SyncJobResponse(
         [property: JsonPropertyName("job_id")] string JobId,
