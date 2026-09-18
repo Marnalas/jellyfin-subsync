@@ -189,6 +189,25 @@ def test_full_or_none_situations_dont_touch_vad(run_sync, fake_ffsubsync):
     assert "--vad" not in fake_ffsubsync.argv
 
 
+def test_full_pgs_situation_adds_the_bare_pgs_ref_stream_flag(run_sync, fake_ffsubsync):
+    """No OCR involved - the plugin already established there's exactly one
+    unambiguous non-forced PGS track, so the bare (auto-detect) form is
+    enough. Checked by presence, not fake_ffsubsync.option(), since this
+    flag takes no value and may be the last argument on the command line."""
+    run_sync(embedded_subtitle_situation="full_pgs")
+    assert "--pgs-ref-stream" in fake_ffsubsync.argv
+
+
+def test_users_configured_reference_stream_wins_over_the_full_pgs_situation(run_sync, fake_ffsubsync, monkeypatch):
+    """An explicit FFSUBSYNC_EXTRA_ARGS --reference-stream is the user's own
+    choice of what to align against, and always wins - --pgs-ref-stream must
+    not be added on top of it."""
+    monkeypatch.setattr(app, "FFSUBSYNC_EXTRA_ARGS", ["--reference-stream", "s:1"])
+    run_sync(embedded_subtitle_situation="full_pgs")
+    assert "--pgs-ref-stream" not in fake_ffsubsync.argv
+    assert fake_ffsubsync.option("--reference-stream") == "s:1"
+
+
 # --- alignment metrics and the score gate ------------------------------------
 
 def test_done_job_carries_the_parsed_metrics(run_sync):

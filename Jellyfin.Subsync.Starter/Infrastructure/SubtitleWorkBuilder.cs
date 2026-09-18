@@ -14,6 +14,17 @@ namespace Jellyfin.Subsync.Starter.Infrastructure;
 internal static class SubtitleWorkBuilder
 {
     /// <summary>
+    /// Jellyfin's normalized names (<c>ProbeResultNormalizer.NormalizeSubtitleCodec</c>)
+    /// for image-based subtitle codecs, not ffprobe's raw codec_name - these
+    /// never enter ffsubsync's own text-subtitle comparison (its
+    /// _BITMAP_SUBTITLE_CODECS), so a full one must never count as "there's
+    /// a good text track" here. Compared case-insensitively throughout;
+    /// XSUB isn't in Jellyfin's normalization list, so its casing as
+    /// reported isn't guaranteed.
+    /// </summary>
+    private static readonly string[] BitmapSubtitleCodecs = ["PGSSUB", "DVBSUB", "DVBTXT", "DVDSUB", "XSUB"];
+
+    /// <summary>
     /// Builds the ordered list of subtitle files to sync for one item, in
     /// the order they should be synced. Association is entirely Jellyfin's:
     /// a stream is this item's subtitle because Jellyfin's naming layer said
@@ -93,11 +104,34 @@ internal static class SubtitleWorkBuilder
         var embedded = subtitleStreams
             .Where(stream => stream is { Type: MediaStreamType.Subtitle, IsExternal: false })
             .ToList();
-        var embeddedSituation = embedded.Count == 0
-            ? EmbeddedSubtitleSituation.HasNoEmbeddedSubtitle
-            : embedded.All(stream => stream.IsForced)
-                ? EmbeddedSubtitleSituation.HasOnlyForcedEmbeddedSubtitles
-                : EmbeddedSubtitleSituation.HasFullEmbeddedSubtitles;
+
+        // Bitmap-coded streams (PGS/VobSub/DVB/xsub) never enter ffsubsync's
+        // own text-subtitle comparison, so a full one must not count as "a
+        // good text track exists" - that would mask a forced-only text stub
+        // ffsubsync's own default would otherwise correctly avoid.
+        var textStreams = embedded
+            .Where(stream => stream.Codec is null
+                             || !BitmapSubtitleCodecs.Contains(stream.Codec, StringComparer.OrdinalIgnoreCase))
+            .ToList();
+        var pgsStreams = embedded
+            .Where(stream => stream.Codec is not null
+                             && string.Equals(stream.Codec, "PGSSUB", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        // Priority: a good text track (trust ffsubsync's own pick) > an
+        // unambiguous single non-forced PGS track (ffsubsync can align
+        // against it with --pgs-ref-stream, no OCR, but only recommended
+        // when there's exactly one candidate - two or more PGS streams
+        // means bare auto-detect isn't trustworthy, same reasoning as the
+        // original forced-only-text-stub fix) > "only forced text streams
+        // exist" (force audio VAD) > nothing usable.
+        var embeddedSituation = textStreams.Any(stream => !stream.IsForced)
+            ? EmbeddedSubtitleSituation.HasFullEmbeddedSubtitles
+            : pgsStreams.Count == 1 && !pgsStreams[0].IsForced
+                ? EmbeddedSubtitleSituation.HasFullPgsEmbeddedSubtitles
+                : textStreams.Count > 0
+                    ? EmbeddedSubtitleSituation.HasOnlyForcedEmbeddedSubtitles
+                    : EmbeddedSubtitleSituation.HasNoEmbeddedSubtitle;
 
         return beside.Count == 0
             ? new ItemSubtitleWork(null, ItemSkipReason.NoUsableSubtitles, elsewhere)

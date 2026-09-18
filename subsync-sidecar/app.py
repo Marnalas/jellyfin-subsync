@@ -100,18 +100,41 @@ def _parse_ffsubsync_result(stderr: str) -> dict:
     }
 
 
-def _vad_override_for(embedded_subtitle_situation):
+_VAD_FLAGS = ("--vad",)
+_PGS_REF_STREAM_FLAGS = ("--pgs-ref-stream", "--pgsstream")
+_REFERENCE_STREAM_FLAGS = ("--reference-stream", "--refstream", "--reference-track", "--reftrack")
+
+
+def _has_any_flag(args, flag_names):
+    return any(flag in args for flag in flag_names)
+
+
+def _reference_args_for(embedded_subtitle_situation, user_args):
     """Translate what Jellyfin told the plugin about the video's own
-    embedded subtitle stream(s) into ffsubsync's --vad flag - a decision that
-    belongs here, not in the plugin, which has no opinion on ffsubsync's VAD
-    backends. Only "forced_only" needs an override: ffsubsync's own
-    subs_then_webrtc default already does the right thing for "none" (falls
-    back to webrtc on its own) and "full" (a legitimate embedded track is
-    worth aligning against). Anything else - absent, or a value this sidecar
-    doesn't recognize (an older sidecar talking to a newer plugin) - is left
-    alone.
+    embedded subtitle stream(s) into extra ffsubsync args - a decision that
+    belongs here, not in the plugin, which has no opinion on ffsubsync's
+    flags. Any flag this function might add that the user already set
+    themselves in FFSUBSYNC_EXTRA_ARGS always wins; nothing is added in that
+    case.
+
+    "forced_only": ffsubsync's own subs_then_webrtc default would otherwise
+    align against the forced-only stub, with nothing to lock onto - audio
+    VAD is safer. "full_pgs": no full text track exists, but there's one
+    unambiguous non-forced PGS track the plugin found - ffsubsync can align
+    against it via packet-display timing (--pgs-ref-stream), no OCR
+    involved. Anything else - absent, "full" (ffsubsync's own default
+    already does the right thing), "none", or a value this sidecar doesn't
+    recognize (an older sidecar talking to a newer plugin) - is left alone.
     """
-    return "webrtc" if embedded_subtitle_situation == "forced_only" else None
+    if embedded_subtitle_situation == "forced_only":
+        if _has_any_flag(user_args, _VAD_FLAGS):
+            return []
+        return ["--vad", "webrtc"]
+    if embedded_subtitle_situation == "full_pgs":
+        if _has_any_flag(user_args, _VAD_FLAGS + _PGS_REF_STREAM_FLAGS + _REFERENCE_STREAM_FLAGS):
+            return []
+        return ["--pgs-ref-stream"]
+    return []
 
 # ffsubsync only decodes the audio track (via ffmpeg), not the full video, so
 # it's light enough per-job to run several at once on a multi-core host.
@@ -193,14 +216,14 @@ class SyncRequest(BaseModel):
     # JOB_TIMEOUT_SECONDS. Capped by MAX_JOB_TIMEOUT_SECONDS either way.
     timeout_seconds: Optional[int] = None
     # What Jellyfin told the plugin about the video's own embedded subtitle
-    # stream(s) - "none", "full" or "forced_only" - or None when it doesn't
-    # apply (the sync reference isn't the video, or an older plugin that
-    # predates this field). A fact, not an instruction: what it implies for
-    # ffsubsync's own alignment strategy is this sidecar's call alone, made
-    # in _vad_override_for below. An unrecognized value (a newer plugin
-    # talking to an older sidecar) is treated the same as None rather than
-    # rejected, matching this file's general "never fail on the unexpected"
-    # posture.
+    # stream(s) - "none", "full", "forced_only" or "full_pgs" - or None when
+    # it doesn't apply (the sync reference isn't the video, or an older
+    # plugin that predates this field). A fact, not an instruction: what it
+    # implies for ffsubsync's own alignment strategy is this sidecar's call
+    # alone, made in _reference_args_for below. An unrecognized value (a
+    # newer plugin talking to an older sidecar) is treated the same as None
+    # rather than rejected, matching this file's general "never fail on the
+    # unexpected" posture.
     embedded_subtitle_situation: Optional[str] = None
 
 
@@ -272,9 +295,7 @@ def _run_ffsubsync(job_id: str, req: SyncRequest, timeout_seconds: int):
             return
 
     extra_args = list(FFSUBSYNC_EXTRA_ARGS)
-    vad_override = _vad_override_for(req.embedded_subtitle_situation)
-    if vad_override and "--vad" not in extra_args:
-        extra_args += ["--vad", vad_override]
+    extra_args += _reference_args_for(req.embedded_subtitle_situation, extra_args)
 
     cmd = [
         "ffsubsync",

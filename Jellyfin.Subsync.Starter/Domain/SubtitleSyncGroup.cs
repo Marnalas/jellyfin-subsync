@@ -25,7 +25,16 @@ public enum EmbeddedSubtitleSituation
     HasFullEmbeddedSubtitles = 2,
 
     /// <summary>Every embedded subtitle stream that exists is forced (a "forced-only stub").</summary>
-    HasOnlyForcedEmbeddedSubtitles = 3
+    HasOnlyForcedEmbeddedSubtitles = 3,
+
+    /// <summary>
+    /// No full text-based embedded stream exists, but exactly one embedded
+    /// PGS (image-based) subtitle stream does, and it isn't forced -
+    /// unambiguous enough to recommend as a reference. ffsubsync can align
+    /// against it via packet-display timing with no OCR; see ffsubsync's
+    /// --pgs-ref-stream.
+    /// </summary>
+    HasFullPgsEmbeddedSubtitles = 4
 }
 
 /// <summary>

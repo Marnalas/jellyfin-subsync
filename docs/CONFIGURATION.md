@@ -68,25 +68,31 @@ A few flags that make sense in this plugin's context:
   adds this on its own - it runs whatever `FFSUBSYNC_EXTRA_ARGS` says, nothing
   more, and has no opinion of its own about which VAD backend to use.
   ffsubsync's own default is `subs_then_webrtc`: when the video carries an
-  embedded text subtitle stream it aligns against that stream instead of the
-  audio, which is usually the *better* choice (no audio extraction, no VAD
+  embedded **text** subtitle stream (`.srt`/`.ass`/`.ssa`/etc, not an image
+  format - see `--pgs-ref-stream` below for those) it aligns against
+  whichever such stream's cues run latest into the file, instead of the
+  audio - usually the *better* choice (no audio extraction, no VAD
   false-positives on noisy mixes or sparse dialogue). What the sidecar *does*
   do is act on a fact the plugin reports with every sync job: what Jellyfin
-  knows about the video's own embedded subtitle stream(s) - none, a full
-  track, or **all forced** (signs/foreign lines, a few dozen cues - a
-  forced-only stub with nothing for subs-based alignment to lock onto). The
-  plugin only ever reports this when the subtitle being synced has no
-  already-synced sibling to align against instead (i.e. the sidecar would be
-  aligning against the video itself) - otherwise a placeholder "irrelevant"
-  value is sent, since VAD has no effect when the reference is another
-  subtitle file. When the sidecar sees the forced-only-stub case, it's the
-  one that decides that means `--vad webrtc`: ffsubsync would otherwise shift
-  a good subtitle by up to `--max-offset-seconds` with a negative score
+  knows about the video's own embedded **text** subtitle stream(s) - none, a
+  full track, or **all forced** (signs/foreign lines, a few dozen cues - a
+  forced-only stub with nothing for subs-based alignment to lock onto).
+  Image-based subtitle codecs (PGS, VobSub, DVB) are never counted as a
+  "full track" here, even when non-forced, because ffsubsync's own default
+  comparison never considers them either - see `--pgs-ref-stream` below for
+  what does happen with those. The plugin only ever reports this when the
+  subtitle being synced has no already-synced sibling to align against
+  instead (i.e. the sidecar would be aligning against the video itself) -
+  otherwise a placeholder "irrelevant" value is sent, since VAD has no effect
+  when the reference is another subtitle file. When the sidecar sees the
+  forced-only-stub case, it's the one that decides that means `--vad webrtc`:
+  ffsubsync would otherwise shift a good subtitle by up to
+  `--max-offset-seconds` with a negative score
   ([smacke/ffsubsync#238](https://github.com/smacke/ffsubsync/issues/238)).
-  Every other report - no embedded subtitle at all, or at least one
-  full/non-forced embedded track - leaves ffsubsync's own default alone. An
-  explicit `--vad ...` in `FFSUBSYNC_EXTRA_ARGS` always wins over what the
-  sidecar would otherwise decide, so you can override the backend globally
+  Every other report - no embedded text subtitle at all, or at least one
+  full/non-forced one - leaves ffsubsync's own default alone. An explicit
+  `--vad ...` in `FFSUBSYNC_EXTRA_ARGS` always wins over what the sidecar
+  would otherwise decide, so you can override the backend globally
   regardless: `--vad auditok` is a CPU-only alternative if webrtc struggles
   on a particular library, and `--vad subs_then_webrtc` pins ffsubsync's own
   default even for a forced-only-stub item, if you'd rather have that. The
@@ -100,6 +106,32 @@ A few flags that make sense in this plugin's context:
   an older plugin never sends it (same result). Nothing breaks either way,
   the forced-only-stub handling just doesn't kick in until both sides are
   upgraded.
+- **`--pgs-ref-stream` - align against a PGS (image-based) subtitle track.**
+  Also never added by the sidecar unless the plugin's report calls for it.
+  PGS/VobSub/DVB subtitle streams are invisible to ffsubsync's own default
+  text-subtitle comparison (see above), so without this flag a video whose
+  only usable embedded subtitle is PGS silently falls back to plain audio
+  VAD - not wrong, just a missed opportunity, since `--pgs-ref-stream`
+  derives timing from *when* each subtitle image is displayed (MKV packet
+  timing via `ffprobe`) with **no OCR involved at all**, and is generally as
+  reliable as a text-subtitle reference. The plugin reports this only when
+  there's no full text track *and* exactly one embedded PGS stream that
+  isn't forced - deliberately conservative: ffsubsync's bare
+  `--pgs-ref-stream` auto-detects "the first" PGS track by container order,
+  so with two or more PGS streams present (say, a forced-only PGS stub
+  alongside a full one) the plugin can't guarantee which one that means, and
+  reports nothing rather than risk aligning against the wrong one - same
+  reasoning as the original forced-only-text-stub problem, just for PGS.
+  In that unambiguous case, the sidecar adds bare `--pgs-ref-stream`, which
+  is enough since there's only one candidate to auto-detect. An explicit
+  `--vad ...`, `--pgs-ref-stream ...` (or its alias `--pgsstream`), or
+  `--reference-stream ...` (or its aliases `--refstream`/
+  `--reference-track`/`--reftrack`) already in `FFSUBSYNC_EXTRA_ARGS` always
+  wins - nothing is added on top of your own choice. VobSub (`dvd_subtitle`)
+  and DVB (`dvb_subtitle`/`dvb_teletext`) subtitle streams have no equivalent
+  flag in ffsubsync today - they're excluded from the text comparison the
+  same way PGS is, but there's nothing for the sidecar to point ffsubsync at
+  for them either, so they behave exactly like "no embedded subtitle."
 - **`--skip-sync-on-low-quality` - refuse a low-confidence alignment.** Not
   added automatically - add it yourself if you want it. It makes ffsubsync
   leave the subtitle's timing unchanged instead of applying an alignment it

@@ -138,24 +138,28 @@ public class SubsyncClientTests
     }
 
     /// <summary>
-    /// A real situation reaches the sidecar under its wire name when the
-    /// orchestrator supplies one (a forced-only-stub embedded track). The
-    /// wire vocabulary ("forced_only") is deliberately not the domain enum's
-    /// own member name - see <c>SubsyncClient.ToWireValue</c>.
+    /// A real situation reaches the sidecar under its own short wire name -
+    /// deliberately not the domain enum's own member names - see
+    /// <c>SubsyncClient.ToWireValue</c>.
     /// </summary>
-    [Fact]
-    public async Task Submit_SendsTheEmbeddedSubtitleSituationUnderItsWireName()
+    [Theory]
+    [InlineData(EmbeddedSubtitleSituation.HasNoEmbeddedSubtitle, "none")]
+    [InlineData(EmbeddedSubtitleSituation.HasFullEmbeddedSubtitles, "full")]
+    [InlineData(EmbeddedSubtitleSituation.HasOnlyForcedEmbeddedSubtitles, "forced_only")]
+    [InlineData(EmbeddedSubtitleSituation.HasFullPgsEmbeddedSubtitles, "full_pgs")]
+    public async Task Submit_SendsTheEmbeddedSubtitleSituationUnderItsWireName(
+        EmbeddedSubtitleSituation situation, string wireValue)
     {
         var (client, handler, _) = Build((request, _) =>
             request.RequestUri!.AbsolutePath == "/sync" ? Created() : JobStatus("done"));
 
         await PumpToCompletionAsync(
             client.SyncAndWaitAsync(Config(), "/media/films/Movie", "Movie.mkv", "Movie.en.srt",
-                CancellationToken.None, EmbeddedSubtitleSituation.HasOnlyForcedEmbeddedSubtitles),
+                CancellationToken.None, situation),
             TimeSpan.FromSeconds(1));
 
         var submitted = JsonSerializer.Deserialize<JsonElement>(handler.Requests[0].Body!);
-        Assert.Equal("forced_only", submitted.GetProperty("embedded_subtitle_situation").GetString());
+        Assert.Equal(wireValue, submitted.GetProperty("embedded_subtitle_situation").GetString());
     }
 
     [Fact]

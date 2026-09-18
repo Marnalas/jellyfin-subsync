@@ -411,6 +411,54 @@ public sealed class SubtitleSyncOrchestratorTests : IDisposable
     }
 
     /// <summary>
+    /// The orchestrator doesn't special-case any particular enum value -
+    /// whatever the group carries flows through unchanged when the video is
+    /// the reference, same as the other three values.
+    /// </summary>
+    [Fact]
+    public async Task VideoReferenceWithFullPgsEmbeddedSubtitle_ReportsTheSituation()
+    {
+        var video = Write("Movie.mkv");
+        var subtitle = Write("Movie.en.srt");
+        var client = new FakeSubsyncClient(SyncOutcome.Synced);
+        var orchestrator = new SubtitleSyncOrchestrator(client, new FakeSkipCache(), new FakeFailCache(),
+            NullLogger.Instance, new FakeFolderChangeSuppressor());
+
+        await orchestrator.ProcessAsync(
+            Config(),
+            new SubtitleSyncGroup(video, [subtitle],
+                EmbeddedSubtitleSituation: EmbeddedSubtitleSituation.HasFullPgsEmbeddedSubtitles),
+            subtitle,
+            CancellationToken.None);
+
+        var (_, _, _, situation) = Assert.Single(client.Calls);
+        Assert.Equal(EmbeddedSubtitleSituation.HasFullPgsEmbeddedSubtitles, situation);
+    }
+
+    [Fact]
+    public async Task SiblingReferenceWithFullPgsEmbeddedSubtitle_ReportsIrrelevant()
+    {
+        var video = Write("Movie.mkv");
+        var synced = Write("Movie.en.srt");
+        var pending = Write("Movie.fr.srt");
+        var client = new FakeSubsyncClient(SyncOutcome.Synced);
+        var skipCache = new FakeSkipCache();
+        skipCache.Synced.Add(synced);
+        var orchestrator = new SubtitleSyncOrchestrator(client, skipCache, new FakeFailCache(), NullLogger.Instance,
+            new FakeFolderChangeSuppressor());
+
+        await orchestrator.ProcessAsync(
+            Config(),
+            new SubtitleSyncGroup(video, [synced, pending],
+                EmbeddedSubtitleSituation: EmbeddedSubtitleSituation.HasFullPgsEmbeddedSubtitles),
+            pending,
+            CancellationToken.None);
+
+        var (_, _, _, situation) = Assert.Single(client.Calls);
+        Assert.Equal(EmbeddedSubtitleSituation.Irrelevant, situation);
+    }
+
+    /// <summary>
     /// A stale override (the reference file was deleted or renamed since
     /// whoever built the picker read it) must be caught here rather than
     /// reach the sidecar as a reference path that doesn't exist.

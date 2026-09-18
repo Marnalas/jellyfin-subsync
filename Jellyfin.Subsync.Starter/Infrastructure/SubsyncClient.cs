@@ -330,6 +330,7 @@ public sealed class SubsyncClient(
         EmbeddedSubtitleSituation.HasNoEmbeddedSubtitle => "none",
         EmbeddedSubtitleSituation.HasFullEmbeddedSubtitles => "full",
         EmbeddedSubtitleSituation.HasOnlyForcedEmbeddedSubtitles => "forced_only",
+        EmbeddedSubtitleSituation.HasFullPgsEmbeddedSubtitles => "full_pgs",
         _ => throw new ArgumentOutOfRangeException(nameof(situation), situation, null)
     };
 

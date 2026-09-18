@@ -188,18 +188,42 @@ def test_parse_tolerates_missing_lines():
     }
 
 
-# --- _vad_override_for -------------------------------------------------------
+# --- _reference_args_for ------------------------------------------------------
 
 def test_forced_only_situation_maps_to_webrtc():
-    """The one situation ffsubsync's own subs_then_webrtc default gets wrong:
-    nothing to lock onto if the only embedded track(s) are forced-only stubs."""
-    assert app._vad_override_for("forced_only") == "webrtc"
+    """The one text situation ffsubsync's own subs_then_webrtc default gets
+    wrong: nothing to lock onto if the only embedded track(s) are forced-only
+    stubs."""
+    assert app._reference_args_for("forced_only", []) == ["--vad", "webrtc"]
+
+
+def test_forced_only_situation_is_skipped_when_the_user_already_set_vad():
+    """The user's own --vad choice is their explicit intent and always wins."""
+    assert app._reference_args_for("forced_only", ["--vad", "auditok"]) == []
+
+
+def test_full_pgs_situation_maps_to_pgs_ref_stream():
+    """No full text track exists, but the plugin found exactly one
+    unambiguous non-forced PGS track - ffsubsync can align against it via
+    packet-display timing, no OCR involved. Bare form auto-detects it."""
+    assert app._reference_args_for("full_pgs", []) == ["--pgs-ref-stream"]
+
+
+@pytest.mark.parametrize("blocking_arg", [
+    "--vad", "--pgs-ref-stream", "--pgsstream",
+    "--reference-stream", "--refstream", "--reference-track", "--reftrack",
+])
+def test_full_pgs_situation_is_skipped_when_the_user_already_chose_a_reference(blocking_arg):
+    """Any of --vad, --pgs-ref-stream (or its alias), or --reference-stream
+    (or any of its aliases) is the user's own explicit choice and always
+    wins over the plugin's report."""
+    assert app._reference_args_for("full_pgs", [blocking_arg, "something"]) == []
 
 
 @pytest.mark.parametrize("situation", ["full", "none", None, "some_future_value_this_sidecar_predates"])
-def test_every_other_situation_leaves_vad_alone(situation):
-    """A full embedded track and no embedded track are both cases ffsubsync's
-    own default already handles correctly. An unrecognized value - a newer
+def test_every_other_situation_adds_nothing(situation):
+    """A full text track and no embedded track are both cases ffsubsync's own
+    default already handles correctly. An unrecognized value - a newer
     plugin talking to an older sidecar - is treated the same as absent rather
     than raising, matching this file's general posture on unexpected input."""
-    assert app._vad_override_for(situation) is None
+    assert app._reference_args_for(situation, []) == []

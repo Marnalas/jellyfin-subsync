@@ -30,13 +30,14 @@ public class SubtitleWorkBuilderTests
             Index = index
         };
 
-    private static MediaStream Embedded(int index = 0, bool isForced = false)
+    private static MediaStream Embedded(int index = 0, bool isForced = false, string? codec = null)
         => new()
         {
             Type = MediaStreamType.Subtitle,
             IsExternal = false,
             Index = index,
-            IsForced = isForced
+            IsForced = isForced,
+            Codec = codec
         };
 
     private static ItemSubtitleWork Build(string? itemPath, params MediaStream[] streams)
@@ -376,6 +377,108 @@ public class SubtitleWorkBuilderTests
     public void NoEmbeddedStream_IsHasNoEmbeddedSubtitle()
     {
         var work = Build("/m/Movie.mkv", External("/m/Movie.en.srt"));
+
+        Assert.NotNull(work.Group);
+        Assert.Equal(EmbeddedSubtitleSituation.HasNoEmbeddedSubtitle, work.Group.EmbeddedSubtitleSituation);
+    }
+
+    // --- G3. Bitmap subtitle codecs (PGS/VobSub/DVB) -------------------------
+
+    /// <summary>
+    /// PGSSUB is Jellyfin's own normalized name for a PGS stream
+    /// (ProbeResultNormalizer.NormalizeSubtitleCodec maps ffprobe's
+    /// hdmv_pgs_subtitle to this) - not ffmpeg's raw codec_name. Getting this
+    /// string wrong would make the whole PGS path silently do nothing.
+    /// </summary>
+    [Fact]
+    public void FullTextStreamAndFullPgsStream_TextWins()
+    {
+        var work = Build(
+            "/m/Movie.mkv",
+            External("/m/Movie.en.srt"),
+            Embedded(isForced: false),
+            Embedded(1, isForced: false, codec: "PGSSUB"));
+
+        Assert.NotNull(work.Group);
+        Assert.Equal(EmbeddedSubtitleSituation.HasFullEmbeddedSubtitles, work.Group.EmbeddedSubtitleSituation);
+    }
+
+    /// <summary>
+    /// The bug this round fixes: a full PGS track is invisible to
+    /// ffsubsync's own text-subtitle comparison, so it must not mask a
+    /// forced-only text stub - ffsubsync's default would still pick that
+    /// stub, reproducing the original issue.
+    /// </summary>
+    [Fact]
+    public void ForcedOnlyTextStreamAndFullPgsStream_IsFullPgsEmbeddedSubtitles()
+    {
+        var work = Build(
+            "/m/Movie.mkv",
+            External("/m/Movie.en.srt"),
+            Embedded(isForced: true),
+            Embedded(1, isForced: false, codec: "PGSSUB"));
+
+        Assert.NotNull(work.Group);
+        Assert.Equal(EmbeddedSubtitleSituation.HasFullPgsEmbeddedSubtitles, work.Group.EmbeddedSubtitleSituation);
+    }
+
+    [Fact]
+    public void SolePgsStream_NotForced_IsFullPgsEmbeddedSubtitles()
+    {
+        var work = Build("/m/Movie.mkv", External("/m/Movie.en.srt"), Embedded(isForced: false, codec: "PGSSUB"));
+
+        Assert.NotNull(work.Group);
+        Assert.Equal(EmbeddedSubtitleSituation.HasFullPgsEmbeddedSubtitles, work.Group.EmbeddedSubtitleSituation);
+    }
+
+    [Fact]
+    public void SolePgsStream_Forced_IsHasNoEmbeddedSubtitle()
+    {
+        var work = Build("/m/Movie.mkv", External("/m/Movie.en.srt"), Embedded(isForced: true, codec: "PGSSUB"));
+
+        Assert.NotNull(work.Group);
+        Assert.Equal(EmbeddedSubtitleSituation.HasNoEmbeddedSubtitle, work.Group.EmbeddedSubtitleSituation);
+    }
+
+    /// <summary>
+    /// Two PGS streams (even with one full one) is ambiguous: ffsubsync's
+    /// bare --pgs-ref-stream auto-detects "the first" by container order,
+    /// which we don't control - the same "which one does bare auto-detect
+    /// actually pick" risk the original text-stream fix exists to avoid.
+    /// </summary>
+    [Fact]
+    public void TwoPgsStreams_OneFullOneForced_IsHasNoEmbeddedSubtitle()
+    {
+        var work = Build(
+            "/m/Movie.mkv",
+            External("/m/Movie.en.srt"),
+            Embedded(isForced: false, codec: "PGSSUB"),
+            Embedded(1, isForced: true, codec: "PGSSUB"));
+
+        Assert.NotNull(work.Group);
+        Assert.Equal(EmbeddedSubtitleSituation.HasNoEmbeddedSubtitle, work.Group.EmbeddedSubtitleSituation);
+    }
+
+    /// <summary>Unchanged from the plain forced-only-stub case - confirms no regression.</summary>
+    [Fact]
+    public void ForcedOnlyTextStreamAndNoPgs_IsOnlyForcedEmbeddedSubtitles()
+    {
+        var work = Build("/m/Movie.mkv", External("/m/Movie.en.srt"), Embedded(isForced: true));
+
+        Assert.NotNull(work.Group);
+        Assert.Equal(EmbeddedSubtitleSituation.HasOnlyForcedEmbeddedSubtitles, work.Group.EmbeddedSubtitleSituation);
+    }
+
+    /// <summary>
+    /// VobSub has no equivalent ffsubsync flag at all - correctly excluded
+    /// from the text pool (so it can't mask a forced-only stub either) and
+    /// not eligible for the PGS path, so this is the same as no embedded
+    /// subtitle at all.
+    /// </summary>
+    [Fact]
+    public void SoleVobSubStream_IsHasNoEmbeddedSubtitle()
+    {
+        var work = Build("/m/Movie.mkv", External("/m/Movie.en.srt"), Embedded(isForced: false, codec: "DVDSUB"));
 
         Assert.NotNull(work.Group);
         Assert.Equal(EmbeddedSubtitleSituation.HasNoEmbeddedSubtitle, work.Group.EmbeddedSubtitleSituation);
