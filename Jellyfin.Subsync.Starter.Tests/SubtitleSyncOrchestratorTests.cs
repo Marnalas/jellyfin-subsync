@@ -308,13 +308,16 @@ public sealed class SubtitleSyncOrchestratorTests : IDisposable
     /// <summary>
     /// The one case the embedded-subtitle-situation report exists for: the
     /// video is the reference (no already-synced sibling to align against
-    /// instead) and Jellyfin's own data says the item's embedded subtitle
-    /// stream(s) are a forced-only stub. What the sidecar does with that
-    /// fact is entirely its own call - the orchestrator's job stops at
-    /// reporting it accurately.
+    /// instead), so whatever <see cref="SubtitleWorkBuilder.BuildWork"/>
+    /// determined the item's embedded subtitle stream(s) look like flows
+    /// through unchanged. What the sidecar does with that fact is entirely
+    /// its own call - the orchestrator's job stops at reporting it accurately.
     /// </summary>
-    [Fact]
-    public async Task VideoReferenceWithOnlyForcedEmbeddedSubtitles_ReportsTheSituation()
+    [Theory]
+    [InlineData(EmbeddedSubtitleSituation.HasOnlyForcedEmbeddedSubtitles)]
+    [InlineData(EmbeddedSubtitleSituation.HasFullEmbeddedSubtitles)]
+    [InlineData(EmbeddedSubtitleSituation.HasFullPgsEmbeddedSubtitles)]
+    public async Task VideoReference_ReportsTheSituationUnchanged(EmbeddedSubtitleSituation situation)
     {
         var video = Write("Movie.mkv");
         var subtitle = Write("Movie.en.srt");
@@ -324,13 +327,12 @@ public sealed class SubtitleSyncOrchestratorTests : IDisposable
 
         await orchestrator.ProcessAsync(
             Config(),
-            new SubtitleSyncGroup(video, [subtitle],
-                EmbeddedSubtitleSituation: EmbeddedSubtitleSituation.HasOnlyForcedEmbeddedSubtitles),
+            new SubtitleSyncGroup(video, [subtitle], EmbeddedSubtitleSituation: situation),
             subtitle,
             CancellationToken.None);
 
-        var (_, _, _, situation) = Assert.Single(client.Calls);
-        Assert.Equal(EmbeddedSubtitleSituation.HasOnlyForcedEmbeddedSubtitles, situation);
+        var (_, _, _, reportedSituation) = Assert.Single(client.Calls);
+        Assert.Equal(situation, reportedSituation);
     }
 
     /// <summary>
@@ -338,10 +340,12 @@ public sealed class SubtitleSyncOrchestratorTests : IDisposable
     /// otherwise be deciding on its own what to align against - it has no
     /// bearing on anything when the reference is another subtitle file, so
     /// <see cref="EmbeddedSubtitleSituation.Irrelevant"/> is reported instead
-    /// of the group's real fact.
+    /// of the group's real fact, regardless of what that fact is.
     /// </summary>
-    [Fact]
-    public async Task SiblingReferenceWithOnlyForcedEmbeddedSubtitles_ReportsIrrelevant()
+    [Theory]
+    [InlineData(EmbeddedSubtitleSituation.HasOnlyForcedEmbeddedSubtitles)]
+    [InlineData(EmbeddedSubtitleSituation.HasFullPgsEmbeddedSubtitles)]
+    public async Task SiblingReference_ReportsIrrelevantRegardlessOfSituation(EmbeddedSubtitleSituation situation)
     {
         var video = Write("Movie.mkv");
         var synced = Write("Movie.en.srt");
@@ -354,13 +358,12 @@ public sealed class SubtitleSyncOrchestratorTests : IDisposable
 
         await orchestrator.ProcessAsync(
             Config(),
-            new SubtitleSyncGroup(video, [synced, pending],
-                EmbeddedSubtitleSituation: EmbeddedSubtitleSituation.HasOnlyForcedEmbeddedSubtitles),
+            new SubtitleSyncGroup(video, [synced, pending], EmbeddedSubtitleSituation: situation),
             pending,
             CancellationToken.None);
 
-        var (_, _, _, situation) = Assert.Single(client.Calls);
-        Assert.Equal(EmbeddedSubtitleSituation.Irrelevant, situation);
+        var (_, _, _, reportedSituation) = Assert.Single(client.Calls);
+        Assert.Equal(EmbeddedSubtitleSituation.Irrelevant, reportedSituation);
     }
 
     /// <summary>
@@ -379,80 +382,6 @@ public sealed class SubtitleSyncOrchestratorTests : IDisposable
 
         await orchestrator.ProcessAsync(
             Config(), new SubtitleSyncGroup(video, [subtitle]), subtitle, CancellationToken.None);
-
-        var (_, _, _, situation) = Assert.Single(client.Calls);
-        Assert.Equal(EmbeddedSubtitleSituation.Irrelevant, situation);
-    }
-
-    /// <summary>
-    /// A video reference where <see cref="SubtitleWorkBuilder.BuildWork"/>
-    /// actually determined the item has a full embedded track is reported
-    /// as-is - ffsubsync's own default is left to decide what that's worth,
-    /// not overridden by the orchestrator.
-    /// </summary>
-    [Fact]
-    public async Task VideoReferenceWithFullEmbeddedSubtitles_ReportsTheSituation()
-    {
-        var video = Write("Movie.mkv");
-        var subtitle = Write("Movie.en.srt");
-        var client = new FakeSubsyncClient(SyncOutcome.Synced);
-        var orchestrator = new SubtitleSyncOrchestrator(client, new FakeSkipCache(), new FakeFailCache(),
-            NullLogger.Instance, new FakeFolderChangeSuppressor());
-
-        await orchestrator.ProcessAsync(
-            Config(),
-            new SubtitleSyncGroup(video, [subtitle],
-                EmbeddedSubtitleSituation: EmbeddedSubtitleSituation.HasFullEmbeddedSubtitles),
-            subtitle,
-            CancellationToken.None);
-
-        var (_, _, _, situation) = Assert.Single(client.Calls);
-        Assert.Equal(EmbeddedSubtitleSituation.HasFullEmbeddedSubtitles, situation);
-    }
-
-    /// <summary>
-    /// The orchestrator doesn't special-case any particular enum value -
-    /// whatever the group carries flows through unchanged when the video is
-    /// the reference, same as the other three values.
-    /// </summary>
-    [Fact]
-    public async Task VideoReferenceWithFullPgsEmbeddedSubtitle_ReportsTheSituation()
-    {
-        var video = Write("Movie.mkv");
-        var subtitle = Write("Movie.en.srt");
-        var client = new FakeSubsyncClient(SyncOutcome.Synced);
-        var orchestrator = new SubtitleSyncOrchestrator(client, new FakeSkipCache(), new FakeFailCache(),
-            NullLogger.Instance, new FakeFolderChangeSuppressor());
-
-        await orchestrator.ProcessAsync(
-            Config(),
-            new SubtitleSyncGroup(video, [subtitle],
-                EmbeddedSubtitleSituation: EmbeddedSubtitleSituation.HasFullPgsEmbeddedSubtitles),
-            subtitle,
-            CancellationToken.None);
-
-        var (_, _, _, situation) = Assert.Single(client.Calls);
-        Assert.Equal(EmbeddedSubtitleSituation.HasFullPgsEmbeddedSubtitles, situation);
-    }
-
-    [Fact]
-    public async Task SiblingReferenceWithFullPgsEmbeddedSubtitle_ReportsIrrelevant()
-    {
-        var video = Write("Movie.mkv");
-        var synced = Write("Movie.en.srt");
-        var pending = Write("Movie.fr.srt");
-        var client = new FakeSubsyncClient(SyncOutcome.Synced);
-        var skipCache = new FakeSkipCache();
-        skipCache.Synced.Add(synced);
-        var orchestrator = new SubtitleSyncOrchestrator(client, skipCache, new FakeFailCache(), NullLogger.Instance,
-            new FakeFolderChangeSuppressor());
-
-        await orchestrator.ProcessAsync(
-            Config(),
-            new SubtitleSyncGroup(video, [synced, pending],
-                EmbeddedSubtitleSituation: EmbeddedSubtitleSituation.HasFullPgsEmbeddedSubtitles),
-            pending,
-            CancellationToken.None);
 
         var (_, _, _, situation) = Assert.Single(client.Calls);
         Assert.Equal(EmbeddedSubtitleSituation.Irrelevant, situation);
