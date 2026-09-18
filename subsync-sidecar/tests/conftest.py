@@ -44,10 +44,13 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-if [ -n "$FAKE_FFSUBSYNC_SLEEP" ]; then sleep "$FAKE_FFSUBSYNC_SLEEP"; fi
-
 # stdout: app.py keeps this only on failure, so its absence is assertable.
+# Written before the sleep below so a timeout test can assert this partial
+# output was captured (subprocess.run's TimeoutExpired carries whatever was
+# already written to the pipe at the moment of the kill).
 echo "scanning audio track"
+
+if [ -n "$FAKE_FFSUBSYNC_SLEEP" ]; then sleep "$FAKE_FFSUBSYNC_SLEEP"; fi
 
 if [ "$FAKE_FFSUBSYNC_FAIL" = "1" ]; then
   echo "boom: could not parse subtitle" >&2

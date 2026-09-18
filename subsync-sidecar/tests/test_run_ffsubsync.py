@@ -5,6 +5,8 @@ binary is never needed. The recurring assertion is `names(library)` - no path
 through this function may leave a `_synced_temp` file behind, because nothing
 else ever cleans them up and they accumulate in the user's library.
 """
+import logging
+
 import pytest
 
 import app
@@ -30,15 +32,21 @@ def test_success_keeps_only_the_stderr_tail(run_sync):
     assert "stdout" not in job
 
 
-def test_failure_keeps_the_diagnostics(run_sync, library, monkeypatch):
+def test_failure_keeps_the_diagnostics(run_sync, library, monkeypatch, caplog):
     monkeypatch.setenv("FAKE_FFSUBSYNC_FAIL", "1")
-    job = run_sync()
+    with caplog.at_level(logging.ERROR, logger="subsync-sidecar"):
+        job = run_sync()
     assert job["status"] == "failed"
     assert "exited 3" in job["error"]
     assert "boom" in job["stderr"]
     assert "scanning audio track" in job["stdout"]
     assert (library / "s.srt").read_bytes() == b"subs"
     assert names(library) == ["s.srt", "v.mkv"]
+    # The full output, not just the 2000-char slice kept on the job dict, has
+    # to reach the actual log - that slice is only ever seen by someone who
+    # already knows to poll GET /jobs/{id} before the job is pruned.
+    assert "scanning audio track" in caplog.text
+    assert "boom: could not parse subtitle" in caplog.text
 
 
 def test_exit_zero_without_output_is_reported_as_an_ffsubsync_failure(run_sync, library, monkeypatch):
@@ -79,12 +87,17 @@ def test_stale_debris_is_never_mistaken_for_this_run_s_output(run_sync, library,
     assert names(library) == ["s.srt", "v.mkv"]
 
 
-def test_timeout_fails_the_job_and_cleans_up(run_sync, library, monkeypatch):
+def test_timeout_fails_the_job_and_cleans_up(run_sync, library, monkeypatch, caplog):
     monkeypatch.setenv("FAKE_FFSUBSYNC_SLEEP", "30")
-    job = run_sync(timeout=1)
+    with caplog.at_level(logging.ERROR, logger="subsync-sidecar"):
+        job = run_sync(timeout=1)
     assert job["status"] == "failed"
     assert "timed out after 1s" in job["error"]
     assert names(library) == ["s.srt", "v.mkv"]
+    # The fake binary writes to stdout before sleeping, so subprocess.run's
+    # TimeoutExpired carries that partial output - logged even though the run
+    # never finished.
+    assert "scanning audio track" in caplog.text
 
 
 def test_missing_binary_is_a_clean_failure(run_sync, monkeypatch):
@@ -219,29 +232,37 @@ def test_done_job_carries_the_parsed_metrics(run_sync):
     assert job["low_quality"] is False
 
 
-def test_negative_score_fails_the_job_and_leaves_the_subtitle_alone(run_sync, library, monkeypatch):
+def test_negative_score_fails_the_job_and_leaves_the_subtitle_alone(run_sync, library, monkeypatch, caplog):
     """ffsubsync exits 0 even when its best alignment is anti-correlated, so the
     score line is the only thing standing between a bad run and an overwritten
     subtitle."""
     monkeypatch.setenv("FAKE_FFSUBSYNC_NEGATIVE_SCORE", "1")
-    job = run_sync()
+    with caplog.at_level(logging.ERROR, logger="subsync-sidecar"):
+        job = run_sync()
     assert job["status"] == "failed"
     assert "alignment rejected" in job["error"]
     assert job["score"] == -72067.32
     assert (library / "s.srt").read_bytes() == b"subs"
     assert names(library) == ["s.srt", "v.mkv"]
+    # This is the exact case a one-line "alignment rejected (score ...)"
+    # summary is useless for - the full output is what would actually explain
+    # why the score came out anti-correlated.
+    assert "score: -72067.320" in caplog.text
+    assert "scanning audio track" in caplog.text
 
 
-def test_low_quality_refusal_is_reported_as_failed(run_sync, library, monkeypatch):
+def test_low_quality_refusal_is_reported_as_failed(run_sync, library, monkeypatch, caplog):
     """With --skip-sync-on-low-quality ffsubsync writes the original back and
     exits 0. Reporting that as done would let the skip-cache pin an unsynced
     file forever; failed lets the fail-cache retry and then give up."""
     monkeypatch.setenv("FAKE_FFSUBSYNC_LOW_QUALITY", "1")
-    job = run_sync()
+    with caplog.at_level(logging.ERROR, logger="subsync-sidecar"):
+        job = run_sync()
     assert job["status"] == "failed"
     assert job["low_quality"] is True
     assert (library / "s.srt").read_bytes() == b"subs"
     assert names(library) == ["s.srt", "v.mkv"]
+    assert "low-quality alignment" in caplog.text
 
 
 # --- KEEP_ORIGINAL_SUBTITLE_BACKUP -----------------------------------------

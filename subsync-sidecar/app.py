@@ -256,6 +256,17 @@ def _fail(job_id: str, message: str):
     log.error("Job %s: %s", job_id, message)
 
 
+def _log_full_ffsubsync_output(job_id: str, reason: str, stdout: str, stderr: str):
+    """Complete stdout/stderr for a failed run, logged in full - distinct from
+    the last-2000-char slice kept on the job dict for the /jobs/{id} response,
+    which is sized for API payloads, not for actually diagnosing a bad run.
+    """
+    log.error(
+        "Job %s: %s - full ffsubsync output follows\n--- stdout ---\n%s\n--- stderr ---\n%s",
+        job_id, reason, stdout or "(empty)", stderr or "(empty)",
+    )
+
+
 def _run_ffsubsync(job_id: str, req: SyncRequest, timeout_seconds: int):
     folder = Path(req.folder)
     try:
@@ -313,7 +324,11 @@ def _run_ffsubsync(job_id: str, req: SyncRequest, timeout_seconds: int):
     try:
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_seconds)
-        except subprocess.TimeoutExpired:
+        except subprocess.TimeoutExpired as e:
+            # capture_output=True means whatever ffsubsync had written to
+            # stdout/stderr before the kill is still on the exception, even
+            # though the run never finished.
+            _log_full_ffsubsync_output(job_id, f"ffsubsync timed out after {timeout_seconds}s", e.stdout, e.stderr)
             _fail(job_id, f"ffsubsync timed out after {timeout_seconds}s")
             return
         except OSError as e:
@@ -331,6 +346,7 @@ def _run_ffsubsync(job_id: str, req: SyncRequest, timeout_seconds: int):
                 if job_id in jobs:
                     jobs[job_id]["stdout"] = result.stdout[-2000:]
                     jobs[job_id]["stderr"] = result.stderr[-2000:]
+            _log_full_ffsubsync_output(job_id, f"ffsubsync exited {result.returncode}", result.stdout, result.stderr)
             _fail(job_id, f"ffsubsync exited {result.returncode}")
             return
 
@@ -358,6 +374,7 @@ def _run_ffsubsync(job_id: str, req: SyncRequest, timeout_seconds: int):
             # more than the file the user already has, so leave it alone and
             # let the plugin's fail-cache decide how often to retry.
             message = f"ffsubsync alignment rejected (score {score}); subtitle left untouched"
+            _log_full_ffsubsync_output(job_id, message, result.stdout, result.stderr)
             _terminate(job_id, "failed", error=message, stderr=result.stderr[-2000:], **metrics)
             log.error("Job %s: %s", job_id, message)
             return
