@@ -62,11 +62,22 @@ public interface ISubsyncClient
     /// (the default) when <paramref name="referenceFilename"/> isn't the
     /// video, where it has no bearing on anything the sidecar does.
     /// </param>
+    /// <param name="embeddedSubtitleIndex">
+    /// The specific embedded stream <paramref name="embeddedSubtitleSituation"/>
+    /// refers to, when it's <see cref="EmbeddedSubtitleSituation.HasFullEmbeddedSubtitles"/>
+    /// or <see cref="EmbeddedSubtitleSituation.HasFullPgsEmbeddedSubtitles"/>;
+    /// null otherwise. This is the stream's 0-based rank among the video's
+    /// own embedded subtitle streams only (text and bitmap codecs alike, in
+    /// container order) - not its <c>MediaStream.Index</c> among every
+    /// stream in the file. Same posture as the situation itself - a fact,
+    /// not an instruction; what the sidecar does with it is its own call.
+    /// </param>
     Task<SyncOutcome> SyncAndWaitAsync(
         PluginConfiguration config,
         string folder,
         string referenceFilename,
         string subtitleFilename,
         CancellationToken cancellationToken,
-        EmbeddedSubtitleSituation embeddedSubtitleSituation = EmbeddedSubtitleSituation.Irrelevant);
+        EmbeddedSubtitleSituation embeddedSubtitleSituation = EmbeddedSubtitleSituation.Irrelevant,
+        int? embeddedSubtitleIndex = null);
 }

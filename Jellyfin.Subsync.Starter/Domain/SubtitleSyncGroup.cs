@@ -45,11 +45,24 @@ public enum EmbeddedSubtitleSituation
 /// single folder plus two filenames, so a cross-directory pair can't be
 /// expressed.
 /// </summary>
+/// <param name="EmbeddedSubtitleIndex">
+/// The specific embedded stream that justified
+/// <see cref="EmbeddedSubtitleSituation.HasFullEmbeddedSubtitles"/> or
+/// <see cref="EmbeddedSubtitleSituation.HasFullPgsEmbeddedSubtitles"/> -
+/// null for every other situation. Not <c>MediaStream.Index</c> (the
+/// stream's absolute position among every stream in the file); this is its
+/// 0-based rank among the video's own embedded subtitle streams only, text
+/// and bitmap codecs alike, in container order - the same numbering an
+/// ffmpeg stream specifier's per-type index means (what "s:1" in "0:s:1"
+/// refers to). Like the situation itself, a fact about the item for the
+/// sidecar to interpret, not an instruction.
+/// </param>
 internal sealed record SubtitleSyncGroup(
     string VideoPath,
     IReadOnlyList<string> SubtitlePaths,
     IReadOnlySet<string>? ForcedSubtitlePaths = null,
-    EmbeddedSubtitleSituation EmbeddedSubtitleSituation = EmbeddedSubtitleSituation.Irrelevant);
+    EmbeddedSubtitleSituation EmbeddedSubtitleSituation = EmbeddedSubtitleSituation.Irrelevant,
+    int? EmbeddedSubtitleIndex = null);
 
 /// <summary>
 /// Why an item produced no group. Only used for logging - the sweep skips

@@ -109,7 +109,7 @@ def _has_any_flag(args, flag_names):
     return any(flag in args for flag in flag_names)
 
 
-def _reference_args_for(embedded_subtitle_situation, user_args):
+def _reference_args_for(embedded_subtitle_situation, embedded_subtitle_index, user_args):
     """Translate what Jellyfin told the plugin about the video's own
     embedded subtitle stream(s) into extra ffsubsync args - a decision that
     belongs here, not in the plugin, which has no opinion on ffsubsync's
@@ -122,9 +122,21 @@ def _reference_args_for(embedded_subtitle_situation, user_args):
     VAD is safer. "full_pgs": no full text track exists, but there's one
     unambiguous non-forced PGS track the plugin found - ffsubsync can align
     against it via packet-display timing (--pgs-ref-stream), no OCR
-    involved. Anything else - absent, "full" (ffsubsync's own default
-    already does the right thing), "none", or a value this sidecar doesn't
-    recognize (an older sidecar talking to a newer plugin) - is left alone.
+    involved. "full": a good text track exists - ffsubsync's own default
+    would otherwise pick a stream itself (by longest duration, unlogged and
+    unobservable), so when the plugin also told us exactly which stream that
+    is, pin it explicitly with --reference-stream rather than trust a choice
+    we can never see. Anything else - absent, "none", or a value this
+    sidecar doesn't recognize (an older sidecar talking to a newer plugin) -
+    is left alone. An index-less "full"/"full_pgs" (an older plugin that
+    predates this field) falls back to the prior behavior instead of
+    guessing.
+
+    embedded_subtitle_index is the stream's 0-based rank among the video's
+    own embedded subtitle streams only (ffmpeg's own per-type stream
+    numbering), not a raw ffprobe/container stream index - ffsubsync expects
+    it formatted as "s:<index>" (per --help: "0:s:0 uses the first subtitle
+    track... you may drop the leading 0: and write s:0"), not a bare number.
     """
     if embedded_subtitle_situation == "forced_only":
         if _has_any_flag(user_args, _VAD_FLAGS):
@@ -133,7 +145,15 @@ def _reference_args_for(embedded_subtitle_situation, user_args):
     if embedded_subtitle_situation == "full_pgs":
         if _has_any_flag(user_args, _VAD_FLAGS + _PGS_REF_STREAM_FLAGS + _REFERENCE_STREAM_FLAGS):
             return []
+        if embedded_subtitle_index is not None:
+            return ["--pgs-ref-stream", f"s:{embedded_subtitle_index}"]
         return ["--pgs-ref-stream"]
+    if embedded_subtitle_situation == "full":
+        if embedded_subtitle_index is None:
+            return []
+        if _has_any_flag(user_args, _REFERENCE_STREAM_FLAGS):
+            return []
+        return ["--reference-stream", f"s:{embedded_subtitle_index}"]
     return []
 
 # ffsubsync only decodes the audio track (via ffmpeg), not the full video, so
@@ -225,6 +245,17 @@ class SyncRequest(BaseModel):
     # rather than rejected, matching this file's general "never fail on the
     # unexpected" posture.
     embedded_subtitle_situation: Optional[str] = None
+    # The specific embedded stream that justified "full"/"full_pgs" above, or
+    # None when the situation doesn't name one - an older plugin, a situation
+    # that isn't "full"/"full_pgs", or ambiguity the plugin itself couldn't
+    # resolve. This is the stream's 0-based rank among the video's own
+    # embedded subtitle streams only, text and bitmap codecs alike, in
+    # container order - i.e. exactly the N in ffmpeg's own "s:N" stream
+    # specifier, not a MediaStream.Index (the stream's absolute position
+    # among every stream in the file, which ffsubsync's --reference-stream/
+    # --pgs-ref-stream don't accept on their own). Only consulted for those
+    # two situations, in _reference_args_for below.
+    embedded_subtitle_index: Optional[int] = None
 
 
 def _effective_timeout(requested: Optional[int]) -> int:
@@ -306,7 +337,7 @@ def _run_ffsubsync(job_id: str, req: SyncRequest, timeout_seconds: int):
             return
 
     extra_args = list(FFSUBSYNC_EXTRA_ARGS)
-    extra_args += _reference_args_for(req.embedded_subtitle_situation, extra_args)
+    extra_args += _reference_args_for(req.embedded_subtitle_situation, req.embedded_subtitle_index, extra_args)
 
     cmd = [
         "ffsubsync",

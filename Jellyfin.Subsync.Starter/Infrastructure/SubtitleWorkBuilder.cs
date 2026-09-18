@@ -118,32 +118,72 @@ internal static class SubtitleWorkBuilder
                              && string.Equals(stream.Codec, "PGSSUB", StringComparison.OrdinalIgnoreCase))
             .ToList();
 
-        // Priority: a good text track (trust ffsubsync's own pick) > an
-        // unambiguous single non-forced PGS track (ffsubsync can align
-        // against it with --pgs-ref-stream, no OCR, but only recommended
-        // when there's exactly one candidate - two or more PGS streams
-        // means bare auto-detect isn't trustworthy, same reasoning as the
-        // original forced-only-text-stub fix) > "only forced text streams
-        // exist" (force audio VAD) > nothing usable.
+        // ffsubsync's --reference-stream/--pgs-ref-stream take an ffmpeg
+        // stream specifier's own per-type numbering (e.g. "s:1" - the second
+        // subtitle-type stream in the container, text or bitmap codec alike,
+        // counting from 0), which has nothing to do with MediaStream.Index
+        // (a stream's absolute position among every stream in the file).
+        // Reproduce that per-type order by sorting all embedded subtitle
+        // streams by Index - the same order Jellyfin's own numbering follows
+        // ffprobe's stream discovery in - and reporting a chosen stream's
+        // rank within it instead of its raw Index.
+        var embeddedByContainerOrder = embedded.OrderBy(stream => stream.Index).ToList();
+
+        int RelativeSubtitleStreamIndex(MediaStream stream)
+            => embeddedByContainerOrder.FindIndex(candidate => candidate.Index == stream.Index);
+
+        // Priority: a good text track (report exactly which stream, below,
+        // rather than leave it to ffsubsync's own unlogged, unobservable
+        // duration-based pick) > an unambiguous single non-forced PGS track
+        // (ffsubsync can align against it with --pgs-ref-stream, no OCR, but
+        // only recommended when there's exactly one candidate - two or more
+        // PGS streams means bare auto-detect isn't trustworthy, same
+        // reasoning as the original forced-only-text-stub fix) > "only
+        // forced text streams exist" (force audio VAD) > nothing usable.
         EmbeddedSubtitleSituation embeddedSituation;
+        int? embeddedIndex;
         if (textStreams.Any(stream => !stream.IsForced))
+        {
             embeddedSituation = EmbeddedSubtitleSituation.HasFullEmbeddedSubtitles;
+            // Several non-forced text streams can exist (e.g. two dubbed
+            // languages); the container's own default-disposition flag is a
+            // real signal for "the" one, unlike picking an arbitrary index.
+            // Falls back to the lowest index when zero or several streams
+            // claim it, for a deterministic pick either way.
+            var fullTextStreams = textStreams.Where(stream => !stream.IsForced).ToList();
+            var defaultTextStreams = fullTextStreams.Where(stream => stream.IsDefault).ToList();
+            embeddedIndex = RelativeSubtitleStreamIndex(defaultTextStreams is [var soleDefault]
+                ? soleDefault
+                : fullTextStreams.OrderBy(stream => stream.Index).First());
+        }
         else if (pgsStreams is [{ IsForced: false }])
+        {
             embeddedSituation = EmbeddedSubtitleSituation.HasFullPgsEmbeddedSubtitles;
+            embeddedIndex = RelativeSubtitleStreamIndex(pgsStreams[0]);
+        }
         else if (textStreams.Count > 0)
+        {
             embeddedSituation = EmbeddedSubtitleSituation.HasOnlyForcedEmbeddedSubtitles;
+            embeddedIndex = null;
+        }
         else if (pgsStreams.Count > 1)
+        {
             // Two or more PGS streams and no text track: ambiguous, same as
             // above, so this reports "no opinion" rather than the false claim
             // that no embedded subtitle exists at all.
             embeddedSituation = EmbeddedSubtitleSituation.Irrelevant;
+            embeddedIndex = null;
+        }
         else
+        {
             embeddedSituation = EmbeddedSubtitleSituation.HasNoEmbeddedSubtitle;
+            embeddedIndex = null;
+        }
 
         return beside.Count == 0
             ? new ItemSubtitleWork(null, ItemSkipReason.NoUsableSubtitles, elsewhere)
             : new ItemSubtitleWork(
-                new SubtitleSyncGroup(itemPath, beside, forced, embeddedSituation),
+                new SubtitleSyncGroup(itemPath, beside, forced, embeddedSituation, embeddedIndex),
                 ItemSkipReason.None,
                 elsewhere);
     }

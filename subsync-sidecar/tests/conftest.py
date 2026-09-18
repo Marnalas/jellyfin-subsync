@@ -179,7 +179,7 @@ def make_job():
 def run_sync(library, make_job):
     """Run `_run_ffsubsync` end to end against `library` and return the job."""
     def _run(folder=None, reference="v.mkv", subtitle="s.srt", timeout=10, embedded_subtitle_situation=None,
-             **fields):
+             embedded_subtitle_index=None, **fields):
         job_id = make_job(timeout_seconds=timeout, **fields)
         request = app.SyncRequest(
             folder=str(library if folder is None else folder),
@@ -187,6 +187,7 @@ def run_sync(library, make_job):
             subtitle_filename=subtitle,
             timeout_seconds=timeout,
             embedded_subtitle_situation=embedded_subtitle_situation,
+            embedded_subtitle_index=embedded_subtitle_index,
         )
         app._run_ffsubsync(job_id, request, timeout)
         return app.jobs[job_id]

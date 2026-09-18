@@ -30,14 +30,16 @@ public class SubtitleWorkBuilderTests
             Index = index
         };
 
-    private static MediaStream Embedded(int index = 0, bool isForced = false, string? codec = null)
+    private static MediaStream Embedded(int index = 0, bool isForced = false, string? codec = null,
+        bool isDefault = false)
         => new()
         {
             Type = MediaStreamType.Subtitle,
             IsExternal = false,
             Index = index,
             IsForced = isForced,
-            Codec = codec
+            Codec = codec,
+            IsDefault = isDefault
         };
 
     private static ItemSubtitleWork Build(string? itemPath, params MediaStream[] streams)
@@ -340,20 +342,30 @@ public class SubtitleWorkBuilderTests
 
         Assert.NotNull(work.Group);
         Assert.Equal(EmbeddedSubtitleSituation.HasOnlyForcedEmbeddedSubtitles, work.Group.EmbeddedSubtitleSituation);
-    }
-
-    [Fact]
-    public void SoleEmbeddedStream_NotForced_IsFullEmbeddedSubtitles()
-    {
-        var work = Build("/m/Movie.mkv", External("/m/Movie.en.srt"), Embedded(isForced: false));
-
-        Assert.NotNull(work.Group);
-        Assert.Equal(EmbeddedSubtitleSituation.HasFullEmbeddedSubtitles, work.Group.EmbeddedSubtitleSituation);
+        Assert.Null(work.Group.EmbeddedSubtitleIndex);
     }
 
     /// <summary>
-    /// One full embedded track is a legitimate reference ffsubsync's own
-    /// default should be left to use, even alongside a forced one.
+    /// The reported index is the stream's rank among the video's own
+    /// embedded subtitle streams (what ffmpeg's "s:N" means), not its raw
+    /// MediaStream.Index - the sole candidate here is rank 0 despite sitting
+    /// at container index 3.
+    /// </summary>
+    [Fact]
+    public void SoleEmbeddedStream_NotForced_IsFullEmbeddedSubtitles()
+    {
+        var work = Build("/m/Movie.mkv", External("/m/Movie.en.srt"), Embedded(3, isForced: false));
+
+        Assert.NotNull(work.Group);
+        Assert.Equal(EmbeddedSubtitleSituation.HasFullEmbeddedSubtitles, work.Group.EmbeddedSubtitleSituation);
+        Assert.Equal(0, work.Group.EmbeddedSubtitleIndex);
+    }
+
+    /// <summary>
+    /// One full embedded track is a legitimate reference to report, even
+    /// alongside a forced one - its index is what's now pinned explicitly
+    /// via --reference-stream, rather than left to ffsubsync's own
+    /// unobservable pick.
     /// </summary>
     [Fact]
     public void MixOfForcedAndNonForcedEmbeddedStreams_IsFullEmbeddedSubtitles()
@@ -366,6 +378,61 @@ public class SubtitleWorkBuilderTests
 
         Assert.NotNull(work.Group);
         Assert.Equal(EmbeddedSubtitleSituation.HasFullEmbeddedSubtitles, work.Group.EmbeddedSubtitleSituation);
+        Assert.Equal(1, work.Group.EmbeddedSubtitleIndex);
+    }
+
+    /// <summary>
+    /// Several non-forced text streams can exist (e.g. two dubbed languages).
+    /// Nothing else here knows which one better matches the external
+    /// subtitle being synced, so the container's own default-disposition
+    /// flag is the one real signal available - prefer it over an arbitrary
+    /// index.
+    /// </summary>
+    [Fact]
+    public void TwoNonForcedTextStreams_OneDefault_PicksTheDefaultStreamIndex()
+    {
+        var work = Build(
+            "/m/Movie.mkv",
+            External("/m/Movie.en.srt"),
+            Embedded(1, isForced: false),
+            Embedded(2, isForced: false, isDefault: true));
+
+        Assert.NotNull(work.Group);
+        Assert.Equal(EmbeddedSubtitleSituation.HasFullEmbeddedSubtitles, work.Group.EmbeddedSubtitleSituation);
+        Assert.Equal(1, work.Group.EmbeddedSubtitleIndex); // rank 1: second of the two embedded streams
+    }
+
+    /// <summary>
+    /// With no default-disposition flag to break the tie, fall back to the
+    /// lowest index for a deterministic pick.
+    /// </summary>
+    [Fact]
+    public void TwoNonForcedTextStreams_NeitherDefault_PicksTheLowestIndex()
+    {
+        var work = Build(
+            "/m/Movie.mkv",
+            External("/m/Movie.en.srt"),
+            Embedded(5, isForced: false),
+            Embedded(2, isForced: false));
+
+        Assert.NotNull(work.Group);
+        Assert.Equal(EmbeddedSubtitleSituation.HasFullEmbeddedSubtitles, work.Group.EmbeddedSubtitleSituation);
+        Assert.Equal(0, work.Group.EmbeddedSubtitleIndex); // rank 0: container index 2 sorts before 5
+    }
+
+    /// <summary>Both claiming default is exactly as unhelpful as neither - same fallback.</summary>
+    [Fact]
+    public void TwoNonForcedTextStreams_BothDefault_PicksTheLowestIndex()
+    {
+        var work = Build(
+            "/m/Movie.mkv",
+            External("/m/Movie.en.srt"),
+            Embedded(5, isForced: false, isDefault: true),
+            Embedded(2, isForced: false, isDefault: true));
+
+        Assert.NotNull(work.Group);
+        Assert.Equal(EmbeddedSubtitleSituation.HasFullEmbeddedSubtitles, work.Group.EmbeddedSubtitleSituation);
+        Assert.Equal(0, work.Group.EmbeddedSubtitleIndex); // rank 0: container index 2 sorts before 5
     }
 
     /// <summary>
@@ -380,6 +447,7 @@ public class SubtitleWorkBuilderTests
 
         Assert.NotNull(work.Group);
         Assert.Equal(EmbeddedSubtitleSituation.HasNoEmbeddedSubtitle, work.Group.EmbeddedSubtitleSituation);
+        Assert.Null(work.Group.EmbeddedSubtitleIndex);
     }
 
     // --- G3. Bitmap subtitle codecs (PGS/VobSub/DVB) -------------------------
@@ -401,6 +469,7 @@ public class SubtitleWorkBuilderTests
 
         Assert.NotNull(work.Group);
         Assert.Equal(EmbeddedSubtitleSituation.HasFullEmbeddedSubtitles, work.Group.EmbeddedSubtitleSituation);
+        Assert.Equal(0, work.Group.EmbeddedSubtitleIndex);
     }
 
     /// <summary>
@@ -420,15 +489,19 @@ public class SubtitleWorkBuilderTests
 
         Assert.NotNull(work.Group);
         Assert.Equal(EmbeddedSubtitleSituation.HasFullPgsEmbeddedSubtitles, work.Group.EmbeddedSubtitleSituation);
+        Assert.Equal(1, work.Group.EmbeddedSubtitleIndex);
     }
 
     [Fact]
     public void SolePgsStream_NotForced_IsFullPgsEmbeddedSubtitles()
     {
-        var work = Build("/m/Movie.mkv", External("/m/Movie.en.srt"), Embedded(isForced: false, codec: "PGSSUB"));
+        var work = Build("/m/Movie.mkv", External("/m/Movie.en.srt"),
+            Embedded(4, isForced: false, codec: "PGSSUB"));
 
         Assert.NotNull(work.Group);
         Assert.Equal(EmbeddedSubtitleSituation.HasFullPgsEmbeddedSubtitles, work.Group.EmbeddedSubtitleSituation);
+        Assert.Equal(0,
+            work.Group.EmbeddedSubtitleIndex); // rank 0: the sole embedded stream, despite container index 4
     }
 
     [Fact]
@@ -438,6 +511,7 @@ public class SubtitleWorkBuilderTests
 
         Assert.NotNull(work.Group);
         Assert.Equal(EmbeddedSubtitleSituation.HasNoEmbeddedSubtitle, work.Group.EmbeddedSubtitleSituation);
+        Assert.Null(work.Group.EmbeddedSubtitleIndex);
     }
 
     /// <summary>
@@ -459,6 +533,7 @@ public class SubtitleWorkBuilderTests
 
         Assert.NotNull(work.Group);
         Assert.Equal(EmbeddedSubtitleSituation.Irrelevant, work.Group.EmbeddedSubtitleSituation);
+        Assert.Null(work.Group.EmbeddedSubtitleIndex);
     }
 
     /// <summary>Unchanged from the plain forced-only-stub case - confirms no regression.</summary>
@@ -468,7 +543,9 @@ public class SubtitleWorkBuilderTests
         var work = Build("/m/Movie.mkv", External("/m/Movie.en.srt"), Embedded(isForced: true));
 
         Assert.NotNull(work.Group);
-        Assert.Equal(EmbeddedSubtitleSituation.HasOnlyForcedEmbeddedSubtitles, work.Group.EmbeddedSubtitleSituation);
+        Assert.Equal(EmbeddedSubtitleSituation.HasOnlyForcedEmbeddedSubtitles,
+            work.Group.EmbeddedSubtitleSituation);
+        Assert.Null(work.Group.EmbeddedSubtitleIndex);
     }
 
     /// <summary>
@@ -484,6 +561,7 @@ public class SubtitleWorkBuilderTests
 
         Assert.NotNull(work.Group);
         Assert.Equal(EmbeddedSubtitleSituation.HasNoEmbeddedSubtitle, work.Group.EmbeddedSubtitleSituation);
+        Assert.Null(work.Group.EmbeddedSubtitleIndex);
     }
 
     // --- G. Ordering ---------------------------------------------------------
@@ -624,7 +702,8 @@ public class BuildCandidateListTests
     public void MapsStreamMetadata()
     {
         var stream = External("/m/Movie.ar.srt", index: 7, language: "ara", title: "Arabic");
-        var work = SubtitleWorkBuilder.BuildWork("/m/Movie.mkv", isDiscImageOrFolder: false, [stream], DefaultConfig());
+        var work = SubtitleWorkBuilder.BuildWork("/m/Movie.mkv", isDiscImageOrFolder: false, [stream],
+            DefaultConfig());
         Assert.NotNull(work.Group);
 
         var candidates = SubtitleWorkBuilder.BuildCandidateList(work.Group, [stream], _ => false);
@@ -642,7 +721,8 @@ public class BuildCandidateListTests
     public void OrderMatchesGroupOrder()
     {
         MediaStream[] streams = [External("/m/Movie.fr.srt", 5), External("/m/Movie.en.srt", 1)];
-        var work = SubtitleWorkBuilder.BuildWork("/m/Movie.mkv", isDiscImageOrFolder: false, streams, DefaultConfig());
+        var work = SubtitleWorkBuilder.BuildWork("/m/Movie.mkv", isDiscImageOrFolder: false, streams,
+            DefaultConfig());
         Assert.NotNull(work.Group);
 
         var candidates = SubtitleWorkBuilder.BuildCandidateList(work.Group, streams, _ => false);
@@ -654,7 +734,8 @@ public class BuildCandidateListTests
     public void IsAlreadySyncedReflectsTheInjectedPredicate()
     {
         MediaStream[] streams = [External("/m/Movie.en.srt", 0), External("/m/Movie.fr.srt", 1)];
-        var work = SubtitleWorkBuilder.BuildWork("/m/Movie.mkv", isDiscImageOrFolder: false, streams, DefaultConfig());
+        var work = SubtitleWorkBuilder.BuildWork("/m/Movie.mkv", isDiscImageOrFolder: false, streams,
+            DefaultConfig());
         Assert.NotNull(work.Group);
 
         var candidates = SubtitleWorkBuilder.BuildCandidateList(
@@ -668,7 +749,8 @@ public class BuildCandidateListTests
     public void ForcedFlagComesFromTheGroupsForcedSet()
     {
         MediaStream[] streams = [External("/m/Movie.en.srt", 0, isForced: true), External("/m/Movie.fr.srt", 1)];
-        var work = SubtitleWorkBuilder.BuildWork("/m/Movie.mkv", isDiscImageOrFolder: false, streams, DefaultConfig());
+        var work = SubtitleWorkBuilder.BuildWork("/m/Movie.mkv", isDiscImageOrFolder: false, streams,
+            DefaultConfig());
         Assert.NotNull(work.Group);
 
         var candidates = SubtitleWorkBuilder.BuildCandidateList(work.Group, streams, _ => false);

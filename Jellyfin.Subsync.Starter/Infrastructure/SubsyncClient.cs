@@ -70,7 +70,8 @@ public sealed class SubsyncClient(
         string referenceFilename,
         string subtitleFilename,
         CancellationToken cancellationToken,
-        EmbeddedSubtitleSituation embeddedSubtitleSituation = EmbeddedSubtitleSituation.Irrelevant)
+        EmbeddedSubtitleSituation embeddedSubtitleSituation = EmbeddedSubtitleSituation.Irrelevant,
+        int? embeddedSubtitleIndex = null)
     {
         var baseUrl = config.SidecarUrl.TrimEnd('/');
         var requestedTimeout = Math.Max(1, config.JobTimeoutSeconds);
@@ -84,7 +85,7 @@ public sealed class SubsyncClient(
                 $"{baseUrl}/sync",
                 new SyncRequest(
                     folder, referenceFilename, subtitleFilename, requestedTimeout,
-                    ToWireValue(embeddedSubtitleSituation)),
+                    ToWireValue(embeddedSubtitleSituation), embeddedSubtitleIndex),
                 cancellationToken).ConfigureAwait(false);
 
             if ((int)response.StatusCode is >= 400 and < 500)
@@ -348,7 +349,12 @@ public sealed class SubsyncClient(
         // sidecar older than this protocol ignores unknown fields, so this
         // is harmless against one that predates it.
         [property: JsonPropertyName("embedded_subtitle_situation")]
-        string? EmbeddedSubtitleSituation = null);
+        string? EmbeddedSubtitleSituation = null,
+        // See ISubsyncClient.SyncAndWaitAsync's embeddedSubtitleIndex
+        // parameter - already wire-ready as a plain int, unlike the
+        // situation above, so it needs no translation here.
+        [property: JsonPropertyName("embedded_subtitle_index")]
+        int? EmbeddedSubtitleIndex = null);
 
     private sealed record SyncJobResponse(
         [property: JsonPropertyName("job_id")] string JobId,

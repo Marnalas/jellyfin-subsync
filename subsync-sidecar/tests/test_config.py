@@ -194,19 +194,25 @@ def test_forced_only_situation_maps_to_webrtc():
     """The one text situation ffsubsync's own subs_then_webrtc default gets
     wrong: nothing to lock onto if the only embedded track(s) are forced-only
     stubs."""
-    assert app._reference_args_for("forced_only", []) == ["--vad", "webrtc"]
+    assert app._reference_args_for("forced_only", None, []) == ["--vad", "webrtc"]
 
 
 def test_forced_only_situation_is_skipped_when_the_user_already_set_vad():
     """The user's own --vad choice is their explicit intent and always wins."""
-    assert app._reference_args_for("forced_only", ["--vad", "auditok"]) == []
+    assert app._reference_args_for("forced_only", None, ["--vad", "auditok"]) == []
 
 
 def test_full_pgs_situation_maps_to_pgs_ref_stream():
     """No full text track exists, but the plugin found exactly one
     unambiguous non-forced PGS track - ffsubsync can align against it via
-    packet-display timing, no OCR involved. Bare form auto-detects it."""
-    assert app._reference_args_for("full_pgs", []) == ["--pgs-ref-stream"]
+    packet-display timing, no OCR involved. Bare form auto-detects it when
+    the plugin didn't also report the stream's index."""
+    assert app._reference_args_for("full_pgs", None, []) == ["--pgs-ref-stream"]
+
+
+def test_full_pgs_situation_with_an_index_pins_the_pgs_reference_stream():
+    """More precise than the bare auto-detect form, so used when given."""
+    assert app._reference_args_for("full_pgs", 4, []) == ["--pgs-ref-stream", "s:4"]
 
 
 @pytest.mark.parametrize("blocking_arg", [
@@ -217,13 +223,36 @@ def test_full_pgs_situation_is_skipped_when_the_user_already_chose_a_reference(b
     """Any of --vad, --pgs-ref-stream (or its alias), or --reference-stream
     (or any of its aliases) is the user's own explicit choice and always
     wins over the plugin's report."""
-    assert app._reference_args_for("full_pgs", [blocking_arg, "something"]) == []
+    assert app._reference_args_for("full_pgs", 4, [blocking_arg, "something"]) == []
 
 
-@pytest.mark.parametrize("situation", ["full", "none", None, "some_future_value_this_sidecar_predates"])
+def test_full_situation_without_an_index_adds_nothing():
+    """ffsubsync's own default already handles a good text track correctly on
+    its own when the plugin has no index to hand it (an older plugin that
+    predates this field)."""
+    assert app._reference_args_for("full", None, []) == []
+
+
+def test_full_situation_with_an_index_pins_the_reference_stream():
+    """ffsubsync's own stream pick here is invisible to us - it logs nothing
+    about which one it chose. Pin it explicitly when the plugin resolved
+    that ambiguity itself."""
+    assert app._reference_args_for("full", 2, []) == ["--reference-stream", "s:2"]
+
+
+@pytest.mark.parametrize("blocking_arg", [
+    "--reference-stream", "--refstream", "--reference-track", "--reftrack",
+])
+def test_full_situation_with_an_index_is_skipped_when_the_user_already_chose_a_reference(blocking_arg):
+    """The user's own --reference-stream (or alias) is their explicit choice
+    and always wins over the plugin's reported index."""
+    assert app._reference_args_for("full", 2, [blocking_arg, "something"]) == []
+
+
+@pytest.mark.parametrize("situation", ["none", None, "some_future_value_this_sidecar_predates"])
 def test_every_other_situation_adds_nothing(situation):
-    """A full text track and no embedded track are both cases ffsubsync's own
-    default already handles correctly. An unrecognized value - a newer
-    plugin talking to an older sidecar - is treated the same as absent rather
+    """No embedded track at all, and an unrecognized value - a newer plugin
+    talking to an older sidecar - are both treated the same as absent rather
     than raising, matching this file's general posture on unexpected input."""
-    assert app._reference_args_for(situation, []) == []
+    assert app._reference_args_for(situation, None, []) == []
+    assert app._reference_args_for(situation, 2, []) == []

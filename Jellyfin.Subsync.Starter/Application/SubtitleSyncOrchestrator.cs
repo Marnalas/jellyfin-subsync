@@ -85,6 +85,9 @@ internal class SubtitleSyncOrchestrator(
         var embeddedSubtitleSituation = referencePath == group.VideoPath
             ? group.EmbeddedSubtitleSituation
             : EmbeddedSubtitleSituation.Irrelevant;
+        var embeddedSubtitleIndex = referencePath == group.VideoPath
+            ? group.EmbeddedSubtitleIndex
+            : null;
 
         var subtitleMapping = SubtitleMatcher.ToSidecarAbsolute(subtitlePath, config);
         var referenceFileMapping = SubtitleMatcher.ToSidecarAbsolute(referencePath, config);
@@ -108,7 +111,7 @@ internal class SubtitleSyncOrchestrator(
         {
             var outcome = await client
                 .SyncAndWaitAsync(config, folder, referenceFilename, subtitleFilename, cancellationToken,
-                    embeddedSubtitleSituation)
+                    embeddedSubtitleSituation, embeddedSubtitleIndex)
                 .ConfigureAwait(false);
 
             // Only a confirmed sync is recorded. A job we timed out on or

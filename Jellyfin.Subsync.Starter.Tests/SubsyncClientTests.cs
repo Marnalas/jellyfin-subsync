@@ -162,6 +162,45 @@ public class SubsyncClientTests
         Assert.Equal(wireValue, submitted.GetProperty("embedded_subtitle_situation").GetString());
     }
 
+    /// <summary>
+    /// Most jobs pass no index at all (no embedded subtitle situation, a
+    /// sibling reference, or a situation the plugin couldn't resolve one
+    /// for); the sidecar must see that as absent (null), same posture as the
+    /// situation itself.
+    /// </summary>
+    [Fact]
+    public async Task Submit_OmitsEmbeddedSubtitleIndexWhenNotGiven()
+    {
+        var (client, handler, _) = Build((request, _) =>
+            request.RequestUri!.AbsolutePath == "/sync" ? Created() : JobStatus("done"));
+
+        await PumpToCompletionAsync(StartSync(client, Config()), TimeSpan.FromSeconds(1));
+
+        var submitted = JsonSerializer.Deserialize<JsonElement>(handler.Requests[0].Body!);
+        Assert.True(submitted.TryGetProperty("embedded_subtitle_index", out var index));
+        Assert.Equal(JsonValueKind.Null, index.ValueKind);
+    }
+
+    /// <summary>
+    /// A real index reaches the sidecar under its own wire name, already
+    /// wire-ready as a plain int - no translation like the situation's enum
+    /// needs.
+    /// </summary>
+    [Fact]
+    public async Task Submit_SendsTheEmbeddedSubtitleIndexUnderItsWireName()
+    {
+        var (client, handler, _) = Build((request, _) =>
+            request.RequestUri!.AbsolutePath == "/sync" ? Created() : JobStatus("done"));
+
+        await PumpToCompletionAsync(
+            client.SyncAndWaitAsync(Config(), "/media/films/Movie", "Movie.mkv", "Movie.en.srt",
+                CancellationToken.None, EmbeddedSubtitleSituation.HasFullEmbeddedSubtitles, embeddedSubtitleIndex: 2),
+            TimeSpan.FromSeconds(1));
+
+        var submitted = JsonSerializer.Deserialize<JsonElement>(handler.Requests[0].Body!);
+        Assert.Equal(2, submitted.GetProperty("embedded_subtitle_index").GetInt32());
+    }
+
     [Fact]
     public async Task DoneJob_IsSynced()
     {
