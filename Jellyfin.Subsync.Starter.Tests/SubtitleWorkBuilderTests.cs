@@ -444,10 +444,12 @@ public class SubtitleWorkBuilderTests
     /// Two PGS streams (even with one full one) is ambiguous: ffsubsync's
     /// bare --pgs-ref-stream auto-detects "the first" by container order,
     /// which we don't control - the same "which one does bare auto-detect
-    /// actually pick" risk the original text-stream fix exists to avoid.
+    /// actually pick" risk the original text-stream fix exists to avoid. This
+    /// is "no opinion", not "no embedded subtitle exists" - the item plainly
+    /// has embedded PGS streams, there's just no safe recommendation to make.
     /// </summary>
     [Fact]
-    public void TwoPgsStreams_OneFullOneForced_IsHasNoEmbeddedSubtitle()
+    public void TwoPgsStreams_OneFullOneForced_IsIrrelevant()
     {
         var work = Build(
             "/m/Movie.mkv",
@@ -456,7 +458,7 @@ public class SubtitleWorkBuilderTests
             Embedded(1, isForced: true, codec: "PGSSUB"));
 
         Assert.NotNull(work.Group);
-        Assert.Equal(EmbeddedSubtitleSituation.HasNoEmbeddedSubtitle, work.Group.EmbeddedSubtitleSituation);
+        Assert.Equal(EmbeddedSubtitleSituation.Irrelevant, work.Group.EmbeddedSubtitleSituation);
     }
 
     /// <summary>Unchanged from the plain forced-only-stub case - confirms no regression.</summary>

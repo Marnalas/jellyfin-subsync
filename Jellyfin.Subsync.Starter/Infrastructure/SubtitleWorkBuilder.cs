@@ -125,13 +125,20 @@ internal static class SubtitleWorkBuilder
         // means bare auto-detect isn't trustworthy, same reasoning as the
         // original forced-only-text-stub fix) > "only forced text streams
         // exist" (force audio VAD) > nothing usable.
-        var embeddedSituation = textStreams.Any(stream => !stream.IsForced)
-            ? EmbeddedSubtitleSituation.HasFullEmbeddedSubtitles
-            : pgsStreams.Count == 1 && !pgsStreams[0].IsForced
-                ? EmbeddedSubtitleSituation.HasFullPgsEmbeddedSubtitles
-                : textStreams.Count > 0
-                    ? EmbeddedSubtitleSituation.HasOnlyForcedEmbeddedSubtitles
-                    : EmbeddedSubtitleSituation.HasNoEmbeddedSubtitle;
+        EmbeddedSubtitleSituation embeddedSituation;
+        if (textStreams.Any(stream => !stream.IsForced))
+            embeddedSituation = EmbeddedSubtitleSituation.HasFullEmbeddedSubtitles;
+        else if (pgsStreams is [{ IsForced: false }])
+            embeddedSituation = EmbeddedSubtitleSituation.HasFullPgsEmbeddedSubtitles;
+        else if (textStreams.Count > 0)
+            embeddedSituation = EmbeddedSubtitleSituation.HasOnlyForcedEmbeddedSubtitles;
+        else if (pgsStreams.Count > 1)
+            // Two or more PGS streams and no text track: ambiguous, same as
+            // above, so this reports "no opinion" rather than the false claim
+            // that no embedded subtitle exists at all.
+            embeddedSituation = EmbeddedSubtitleSituation.Irrelevant;
+        else
+            embeddedSituation = EmbeddedSubtitleSituation.HasNoEmbeddedSubtitle;
 
         return beside.Count == 0
             ? new ItemSubtitleWork(null, ItemSkipReason.NoUsableSubtitles, elsewhere)
