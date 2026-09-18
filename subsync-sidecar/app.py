@@ -333,20 +333,11 @@ def _run_ffsubsync(job_id: str, req: SyncRequest, timeout_seconds: int):
             _fail(job_id, f"ffsubsync exited {result.returncode}")
             return
 
-        metrics = _parse_ffsubsync_result(result.stderr)
-        score = metrics["score"]
-        if metrics["low_quality"] or (score is not None and score < 0):
-            # ffsubsync either refused the alignment itself or reported an
-            # anti-correlated one. Either way the shifted output is not worth
-            # more than the file the user already has, so leave it alone and
-            # let the plugin's fail-cache decide how often to retry.
-            with jobs_lock:
-                if job_id in jobs:
-                    jobs[job_id]["stderr"] = result.stderr[-2000:]
-                    jobs[job_id].update(metrics)
-            _fail(job_id, f"ffsubsync alignment rejected (score {score}); subtitle left untouched")
-            return
-
+        # Checked before any of the outcomes below get to set a status: a
+        # cancel that lands while the job was finishing always wins, per
+        # _terminate's own invariant. Skipping this first would let, say, a
+        # rejected-score outcome report "failed" for a job the plugin already
+        # gave up on and will never read the result of.
         with jobs_lock:
             cancelled = jobs.get(job_id, {}).get("cancel_requested", False)
         if cancelled:
@@ -356,6 +347,18 @@ def _run_ffsubsync(job_id: str, req: SyncRequest, timeout_seconds: int):
             # again - the exact loop this endpoint exists to prevent.
             _terminate(job_id, "cancelled", error="cancelled by the client before the subtitle was replaced")
             log.info("Job %s: cancelled after running; subtitle left untouched", job_id)
+            return
+
+        metrics = _parse_ffsubsync_result(result.stderr)
+        score = metrics["score"]
+        if metrics["low_quality"] or (score is not None and score < 0):
+            # ffsubsync either refused the alignment itself or reported an
+            # anti-correlated one. Either way the shifted output is not worth
+            # more than the file the user already has, so leave it alone and
+            # let the plugin's fail-cache decide how often to retry.
+            message = f"ffsubsync alignment rejected (score {score}); subtitle left untouched"
+            _terminate(job_id, "failed", error=message, stderr=result.stderr[-2000:], **metrics)
+            log.error("Job %s: %s", job_id, message)
             return
 
         try:
