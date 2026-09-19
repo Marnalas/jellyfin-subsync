@@ -15,6 +15,9 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution items", "Solution 
 		README.md = README.md
 		subsyncstarter-banner.png = subsyncstarter-banner.png
 		.gitignore = .gitignore
+		CONTRIBUTING.md = CONTRIBUTING.md
+		CODE_OF_CONDUCT.md = CODE_OF_CONDUCT.md
+		SECURITY.md = SECURITY.md
 	EndProjectSection
 EndProject
 Global
