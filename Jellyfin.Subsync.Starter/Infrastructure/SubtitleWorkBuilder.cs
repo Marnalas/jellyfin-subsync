@@ -113,10 +113,17 @@ internal static class SubtitleWorkBuilder
             .Where(stream => stream.Codec is null
                              || !BitmapSubtitleCodecs.Contains(stream.Codec, StringComparer.OrdinalIgnoreCase))
             .ToList();
-        var pgsStreams = embedded
-            .Where(stream => stream.Codec is not null
-                             && string.Equals(stream.Codec, "PGSSUB", StringComparison.OrdinalIgnoreCase))
-            .ToList();
+        // config.EnablePgsSupport is the disable switch for this whole PGS
+        // branch (defaults to true, matching this plugin's existing
+        // behavior) - a known issue in ffsubsync's own PGS alignment
+        // (github.com/smacke/ffsubsync/pull/237) means some libraries need
+        // to fall back to pretending these streams don't exist.
+        var pgsStreams = config.EnablePgsSupport
+            ? embedded
+                .Where(stream => stream.Codec is not null
+                                 && string.Equals(stream.Codec, "PGSSUB", StringComparison.OrdinalIgnoreCase))
+                .ToList()
+            : [];
 
         // ffsubsync's --reference-stream/--pgs-ref-stream take an ffmpeg
         // stream specifier's own per-type numbering (e.g. "s:1" - the second

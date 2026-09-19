@@ -127,7 +127,14 @@ A few flags that make sense in this plugin's context:
   the forced-only-stub handling just doesn't kick in until both sides are
   upgraded.
 - **`--pgs-ref-stream` - align against a PGS (image-based) subtitle track.**
-  Also never added by the sidecar unless the plugin's report calls for it.
+  Also never added by the sidecar unless the plugin's report calls for it,
+  and only when the plugin's own **"Enable PGS subtitle support"** config
+  option is on (the default, matching this plugin's prior behavior). Turn
+  it off from the config page if you hit the known ffsubsync PGS-alignment
+  issue tracked at
+  [smacke/ffsubsync#237](https://github.com/smacke/ffsubsync/pull/237) -
+  with it off, embedded PGS streams are treated as if they don't exist,
+  the same as VobSub/DVB below.
   PGS/VobSub/DVB subtitle streams are invisible to ffsubsync's own default
   text-subtitle comparison (see above), so without this flag a video whose
   only usable embedded subtitle is PGS silently falls back to plain audio

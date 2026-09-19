@@ -21,6 +21,9 @@ public class SubtitleWorkBuilderTests
     private static PluginConfiguration DefaultConfig()
         => new() { SubtitleExtensions = ["srt", "ass", "ssa", "vtt", "sub"] };
 
+    private static PluginConfiguration PgsDisabledConfig()
+        => new() { SubtitleExtensions = ["srt", "ass", "ssa", "vtt", "sub"], EnablePgsSupport = false };
+
     private static MediaStream External(string path, int index = 0)
         => new()
         {
@@ -44,6 +47,9 @@ public class SubtitleWorkBuilderTests
 
     private static ItemSubtitleWork Build(string? itemPath, params MediaStream[] streams)
         => SubtitleWorkBuilder.BuildWork(itemPath, isDiscImageOrFolder: false, streams, DefaultConfig());
+
+    private static ItemSubtitleWork Build(string? itemPath, PluginConfiguration config, params MediaStream[] streams)
+        => SubtitleWorkBuilder.BuildWork(itemPath, isDiscImageOrFolder: false, streams, config);
 
     // --- A. The cases the old regex got wrong -------------------------------
 
@@ -558,6 +564,65 @@ public class SubtitleWorkBuilderTests
     public void SoleVobSubStream_IsHasNoEmbeddedSubtitle()
     {
         var work = Build("/m/Movie.mkv", External("/m/Movie.en.srt"), Embedded(isForced: false, codec: "DVDSUB"));
+
+        Assert.NotNull(work.Group);
+        Assert.Equal(EmbeddedSubtitleSituation.HasNoEmbeddedSubtitle, work.Group.EmbeddedSubtitleSituation);
+        Assert.Null(work.Group.EmbeddedSubtitleIndex);
+    }
+
+    /// <summary>
+    /// EnablePgsSupport = false is the admin's escape hatch for the known
+    /// ffsubsync PGS-alignment issue (smacke/ffsubsync#237) - with it off,
+    /// a sole non-forced PGS stream must be treated exactly like any other
+    /// bitmap codec: as if it didn't exist, not as HasFullPgsEmbeddedSubtitles.
+    /// </summary>
+    [Fact]
+    public void SolePgsStream_NotForced_PgsDisabled_IsHasNoEmbeddedSubtitle()
+    {
+        var work = Build("/m/Movie.mkv", PgsDisabledConfig(), External("/m/Movie.en.srt"),
+            Embedded(4, isForced: false, codec: "PGSSUB"));
+
+        Assert.NotNull(work.Group);
+        Assert.Equal(EmbeddedSubtitleSituation.HasNoEmbeddedSubtitle, work.Group.EmbeddedSubtitleSituation);
+        Assert.Null(work.Group.EmbeddedSubtitleIndex);
+    }
+
+    /// <summary>
+    /// With PGS support disabled, a full PGS track must not mask a
+    /// forced-only text stub either - same reasoning as
+    /// ForcedOnlyTextStreamAndFullPgsStream_IsFullPgsEmbeddedSubtitles, but
+    /// falling back to the pre-PGS-awareness behavior instead.
+    /// </summary>
+    [Fact]
+    public void ForcedOnlyTextStreamAndFullPgsStream_PgsDisabled_IsOnlyForcedEmbeddedSubtitles()
+    {
+        var work = Build(
+            "/m/Movie.mkv",
+            PgsDisabledConfig(),
+            External("/m/Movie.en.srt"),
+            Embedded(isForced: true),
+            Embedded(1, isForced: false, codec: "PGSSUB"));
+
+        Assert.NotNull(work.Group);
+        Assert.Equal(EmbeddedSubtitleSituation.HasOnlyForcedEmbeddedSubtitles,
+            work.Group.EmbeddedSubtitleSituation);
+        Assert.Null(work.Group.EmbeddedSubtitleIndex);
+    }
+
+    /// <summary>
+    /// With PGS support disabled, two PGS streams and no text track is not
+    /// "ambiguous" (Irrelevant) - it's simply no usable embedded subtitle,
+    /// same as any other bitmap codec.
+    /// </summary>
+    [Fact]
+    public void TwoPgsStreams_PgsDisabled_IsHasNoEmbeddedSubtitle()
+    {
+        var work = Build(
+            "/m/Movie.mkv",
+            PgsDisabledConfig(),
+            External("/m/Movie.en.srt"),
+            Embedded(isForced: false, codec: "PGSSUB"),
+            Embedded(1, isForced: true, codec: "PGSSUB"));
 
         Assert.NotNull(work.Group);
         Assert.Equal(EmbeddedSubtitleSituation.HasNoEmbeddedSubtitle, work.Group.EmbeddedSubtitleSituation);
