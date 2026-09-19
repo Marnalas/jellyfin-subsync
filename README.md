@@ -106,7 +106,7 @@ smoke test are in [Installation](docs/INSTALLATION.md).
 | [Configuration](docs/CONFIGURATION.md) | Job timeout vs queue wait timeout budgets, useful `FFSUBSYNC_EXTRA_ARGS` flags |
 | [Known limitations](docs/KNOWN_LIMITATIONS.md) | What the plugin can't do and why |
 | [Breaking changes](docs/BREAKING_CHANGES.md) | Upgrade notes per version |
-| [Development](docs/DEVELOPMENT.md) | Running the plugin/sidecar test suites |
+| [Contributing](CONTRIBUTING.md) | Branches, versioning, and testing requirements for PRs |
 
 ## Roadmap
 
@@ -114,7 +114,6 @@ smoke test are in [Installation](docs/INSTALLATION.md).
 - When making a new attempt on a failed subtitle force --vad webrtc (should be opt-in)
 - Make PGS support opt-in as it looks shaky for now https://github.com/smacke/ffsubsync/pull/237
 - Add a config page listing the failed subtitles? Include the reason?
-- Add CONTRIBUTING.md with guidelines
 
 ## Thanks
 
