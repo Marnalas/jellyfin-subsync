@@ -38,6 +38,19 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>Subtitle file extensions to sync. Narrows the set Jellyfin already recognises.</summary>
     public List<string> SubtitleExtensions { get; set; } = [];
 
+    /// <summary>
+    /// Whether the plugin may recommend ffsubsync's PGS-alignment flag
+    /// (--pgs-ref-stream) for embedded PGS subtitle streams. On by default,
+    /// matching this plugin's existing behavior - set to false to disable if
+    /// it misbehaves on your library. There's a known issue in ffsubsync's
+    /// PGS alignment (being fixed in
+    /// https://github.com/smacke/ffsubsync/pull/237), hence the escape hatch.
+    /// When off, embedded PGS streams are treated exactly as if they didn't
+    /// exist - the item falls back to whatever situation applies without
+    /// them (a forced-only text stub still forces audio VAD, etc).
+    /// </summary>
+    public bool EnablePgsSupport { get; set; } = true;
+
     /// <summary>How often the sidecar job status is polled while waiting for a sync to finish.</summary>
     public int PollIntervalMilliseconds { get; set; } = 3000;
 

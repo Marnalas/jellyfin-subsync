@@ -53,6 +53,23 @@
                 </div>
 
                 <div class="inputContainer">
+                    <label>
+                        <input is="emby-checkbox" type="checkbox" id="EnablePgsSupport" />
+                        <span>Enable PGS subtitle support</span>
+                    </label>
+                    <div class="fieldDescription">
+                        Lets the sweep recommend ffsubsync's PGS alignment flag
+                        (<code>--pgs-ref-stream</code>) when an item's only usable embedded
+                        subtitle is an image-based PGS track. On by default. There's a
+                        known issue in ffsubsync's PGS alignment
+                        (<a is="emby-linkbutton" class="button-link" target="_blank" href="https://github.com/smacke/ffsubsync/pull/237">smacke/ffsubsync#237</a>)
+                        - turn this off if it misbehaves on your library. Embedded PGS
+                        streams are then treated as if they don't exist; everything else
+                        is unaffected.
+                    </div>
+                </div>
+
+                <div class="inputContainer">
                     <label class="inputLabel inputLabelUnfocused" for="PollIntervalMilliseconds">Job poll interval (ms)</label>
                     <input is="emby-input" type="number" id="PollIntervalMilliseconds" />
                 </div>

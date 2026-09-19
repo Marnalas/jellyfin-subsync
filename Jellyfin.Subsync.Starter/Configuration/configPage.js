@@ -158,6 +158,10 @@ export default function (view) {
 
             byId('SidecarUrl').value = config.SidecarUrl || '';
             byId('SubtitleExtensions').value = arrayToCsv(config.SubtitleExtensions);
+            // Not `=== true`: a config saved before this field existed has
+            // no EnablePgsSupport key at all (undefined), which must still
+            // read as "on" to match the plugin's own default.
+            byId('EnablePgsSupport').checked = config.EnablePgsSupport !== false;
             byId('PollIntervalMilliseconds').value = config.PollIntervalMilliseconds || 3000;
             byId('JobTimeoutSeconds').value = config.JobTimeoutSeconds || 1800;
             // Not `|| 3600`: 0 is a legitimate value here (wait
@@ -190,6 +194,7 @@ export default function (view) {
             // WatchedPathsMaps is intentionally left untouched here -
             // the server derives it from LibraryPathMappings on save.
             config.SubtitleExtensions = csvToArray(byId('SubtitleExtensions').value);
+            config.EnablePgsSupport = byId('EnablePgsSupport').checked;
             config.PollIntervalMilliseconds = getIntValue('PollIntervalMilliseconds', 3000, 1);
             config.JobTimeoutSeconds = getIntValue('JobTimeoutSeconds', 1800, 1);
             // Same reason as on load: a deliberate 0 ("wait

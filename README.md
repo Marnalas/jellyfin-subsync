@@ -112,7 +112,6 @@ smoke test are in [Installation](docs/INSTALLATION.md).
 
 - Allow single item sync to target a specific embedded subtitle
 - When making a new attempt on a failed subtitle force --vad webrtc (should be opt-in)
-- Make PGS support opt-in as it looks shaky for now https://github.com/smacke/ffsubsync/pull/237
 
 ## Thanks
 
