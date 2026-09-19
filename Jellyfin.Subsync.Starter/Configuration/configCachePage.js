@@ -37,17 +37,22 @@ function buildResultRowHtml(item) {
     const subtitle = itemSubtitle(item);
     return '' +
         '<div class="inputContainer itemResultRow" data-item-id="' + escapeHtml(item.Id) + '" ' +
-        'style="display:flex;align-items:center;justify-content:space-between;gap:1em;' +
-        'border-bottom:1px solid rgba(128,128,128,.25);padding-bottom:0.75em;margin-bottom:0.75em;">' +
+        'style="border-bottom:1px solid rgba(128,128,128,.25);padding-bottom:0.75em;margin-bottom:0.75em;">' +
+        '<div style="display:flex;align-items:center;justify-content:space-between;gap:1em;">' +
         '<div style="min-width:0;">' +
         '<div class="itemResultName">' + escapeHtml(item.Name) + '</div>' +
         (subtitle ? '<div class="fieldDescription itemResultSubtitle">' + escapeHtml(subtitle) + '</div>' : '') +
         (item.Path ? '<div class="fieldDescription itemResultPath" style="word-break:break-all;">' + escapeHtml(item.Path) + '</div>' : '') +
+        '<div class="fieldDescription itemResultClearStatus"></div>' +
         '</div>' +
-        '<div class="itemResultAction">' +
+        '<div class="itemResultAction" style="display:flex;flex-direction:column;align-items:stretch;gap:0.25em;">' +
         '<button is="emby-button" type="button" class="raised clearItemButton">' +
         '<span>Clear</span>' +
         '</button>' +
+        '<button is="emby-button" type="button" class="raised clearItemFailuresButton">' +
+        '<span>Clear failures</span>' +
+        '</button>' +
+        '</div>' +
         '</div>' +
         '</div>';
 }
@@ -147,24 +152,42 @@ export default function (view) {
         });
     }
 
-    function clearItem(row) {
+    const CLEAR_ITEM_ALL = {
+        pathSuffix: '',
+        buttonSelector: '.clearItemButton',
+        describe: function (result) {
+            const total = result.removed + result.removedFailures;
+            return total > 0 ? 'Cleared ' + total : 'Nothing cached for this item';
+        }
+    };
+
+    const CLEAR_ITEM_FAILURES = {
+        pathSuffix: '/Failures',
+        buttonSelector: '.clearItemFailuresButton',
+        describe: function (result) {
+            return result.removedFailures > 0
+                ? 'Cleared ' + result.removedFailures + ' failure(s)'
+                : 'No failures for this item';
+        }
+    };
+
+    function clearItem(row, opts) {
         const itemId = row.dataset.itemId;
-        const action = row.querySelector('.itemResultAction');
-        const button = row.querySelector('.clearItemButton');
+        const status = row.querySelector('.itemResultClearStatus');
+        const button = row.querySelector(opts.buttonSelector);
         button.disabled = true;
+        status.textContent = 'Clearing…';
 
         ApiClient.ajax({
             type: 'DELETE',
-            url: ApiClient.getUrl('Subsync/SkipCache/' + itemId),
+            url: ApiClient.getUrl('Subsync/SkipCache/' + itemId + opts.pathSuffix),
             dataType: 'json'
         }).then(function (result) {
-            const total = result.removed + result.removedFailures;
-            action.textContent = total > 0
-                ? 'Cleared ' + total
-                : 'Nothing cached for this item';
+            button.disabled = false;
+            status.textContent = opts.describe(result);
         }).catch(function () {
             button.disabled = false;
-            action.textContent = 'Failed to clear - try again';
+            status.textContent = 'Failed to clear - try again';
         });
     }
 
@@ -193,6 +216,30 @@ export default function (view) {
         });
     }
 
+    function clearAllFailures() {
+        if (!window.confirm('Clear all failure records? Subtitles that kept failing will be retried on the next sweep.'))
+            return;
+
+        const button = byId('ClearAllFailuresButton');
+        const status = byId('ClearAllFailuresStatus');
+        button.disabled = true;
+        status.textContent = '';
+
+        ApiClient.ajax({
+            type: 'DELETE',
+            url: ApiClient.getUrl('Subsync/SkipCache/Failures'),
+            dataType: 'json'
+        }).then(function (result) {
+            button.disabled = false;
+            status.textContent = result.removedFailures > 0
+                ? 'Cleared ' + result.removedFailures + ' failure record(s).'
+                : 'No failures were cached.';
+        }).catch(function () {
+            button.disabled = false;
+            status.textContent = 'Failed to clear failures - try again.';
+        });
+    }
+
     view.addEventListener('viewshow', function () {
         LibraryMenu.setTabs('subsync', 1, getTabs);
 
@@ -201,9 +248,11 @@ export default function (view) {
         results.innerHTML = '';
         results.style.borderTop = '';
         byId('ClearAllStatus').textContent = '';
+        byId('ClearAllFailuresStatus').textContent = '';
     });
 
     byId('ClearAllButton').addEventListener('click', clearAll);
+    byId('ClearAllFailuresButton').addEventListener('click', clearAllFailures);
 
     byId('ItemSearch').addEventListener('input', function () {
         const term = this.value.trim();
@@ -214,8 +263,15 @@ export default function (view) {
     });
 
     byId('ItemSearchResults').addEventListener('click', function (e) {
-        const button = e.target.closest('.clearItemButton');
-        if (!button) return;
-        clearItem(button.closest('.itemResultRow'));
+        const clearButton = e.target.closest('.clearItemButton');
+        if (clearButton) {
+            clearItem(clearButton.closest('.itemResultRow'), CLEAR_ITEM_ALL);
+            return;
+        }
+
+        const clearFailuresButton = e.target.closest('.clearItemFailuresButton');
+        if (clearFailuresButton) {
+            clearItem(clearFailuresButton.closest('.itemResultRow'), CLEAR_ITEM_FAILURES);
+        }
     });
 }

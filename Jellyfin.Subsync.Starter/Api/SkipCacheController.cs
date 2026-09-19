@@ -36,6 +36,16 @@ public class SkipCacheController(
         return Ok(new { removed, removedFailures });
     }
 
+    [HttpDelete("Failures")]
+    public ActionResult<object> ClearAllFailures()
+    {
+        var removedFailures = failCache.Clear();
+        logger.LogInformation(
+            "Subsync cache: cleared {FailureCount} fail-cache entr(ies)",
+            removedFailures);
+        return Ok(new { removedFailures });
+    }
+
     /// <summary>
     /// Removes cache entries for every external subtitle Jellyfin currently
     /// associates with this item - not filtered through the plugin's
@@ -56,5 +66,20 @@ public class SkipCacheController(
             "Subsync cache: cleared {Count} skip-cache and {FailureCount} fail-cache entr(ies) for {Item}",
             removed, removedFailures, item.Name);
         return Ok(new { removed, removedFailures });
+    }
+
+    [HttpDelete("{itemId:guid}/Failures")]
+    public ActionResult<object> ClearFailuresForItem(Guid itemId)
+    {
+        var item = libraryManager.GetItemById(itemId);
+        if (item is null)
+            return NotFound();
+
+        var paths = SubtitleMatcher.GetExternalSubtitlePaths(item, mediaSourceManager).ToList();
+        var removedFailures = failCache.RemoveForPaths(paths);
+        logger.LogInformation(
+            "Subsync cache: cleared {FailureCount} fail-cache entr(ies) for {Item}",
+            removedFailures, item.Name);
+        return Ok(new { removedFailures });
     }
 }
