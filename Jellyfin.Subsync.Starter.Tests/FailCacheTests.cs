@@ -43,7 +43,8 @@ public sealed class FailCacheTests : IDisposable
 
     private string CachePath => Path.Combine(_dataFolder, "sync-failures.json");
 
-    private FailCache NewCache(int maxConsecutiveFailures) => new(_dataFolder, maxConsecutiveFailures, NullLogger.Instance);
+    private FailCache NewCache(int maxConsecutiveFailures) =>
+        new(_dataFolder, maxConsecutiveFailures, NullLogger.Instance);
 
     private string WriteSubtitle(string name, string content = "1\n00:00:01,000 --> 00:00:02,000\nhello\n")
     {
@@ -79,6 +80,83 @@ public sealed class FailCacheTests : IDisposable
             cache.AddToCache(subtitle);
 
         Assert.True(cache.IsCached(subtitle));
+    }
+
+    [Fact]
+    public void HasPriorFailure_FalseWithNoRecord()
+    {
+        var subtitle = WriteSubtitle("a.srt");
+
+        using var cache = NewCache(3);
+
+        Assert.False(cache.HasPriorFailure(subtitle));
+    }
+
+    [Fact]
+    public void HasPriorFailure_TrueAfterOneFailure()
+    {
+        var subtitle = WriteSubtitle("a.srt");
+
+        using var cache = NewCache(3);
+        cache.AddToCache(subtitle);
+
+        Assert.True(cache.HasPriorFailure(subtitle));
+    }
+
+    /// <summary>
+    /// Unlike <see cref="IFailCache.IsCached"/>, a single failure is enough -
+    /// this is "has it ever failed with this content", not "has it hit the
+    /// retry cap".
+    /// </summary>
+    [Fact]
+    public void HasPriorFailure_TrueEvenBelowTheConsecutiveFailureThreshold()
+    {
+        var subtitle = WriteSubtitle("a.srt");
+
+        using var cache = NewCache(3);
+        cache.AddToCache(subtitle);
+
+        Assert.True(cache.HasPriorFailure(subtitle));
+        Assert.False(cache.IsCached(subtitle));
+    }
+
+    [Fact]
+    public void HasPriorFailure_StaysTrueOnceTheStreakHitsTheCap()
+    {
+        var subtitle = WriteSubtitle("a.srt");
+
+        using var cache = NewCache(3);
+        for (var i = 0; i < 3; i++)
+            cache.AddToCache(subtitle);
+
+        Assert.True(cache.HasPriorFailure(subtitle));
+        Assert.True(cache.IsCached(subtitle));
+    }
+
+    [Fact]
+    public void HasPriorFailure_FalseAfterContentChanges()
+    {
+        var subtitle = WriteSubtitle("a.srt");
+
+        using var cache = NewCache(3);
+        cache.AddToCache(subtitle);
+        Assert.True(cache.HasPriorFailure(subtitle));
+
+        File.WriteAllText(subtitle, "different content entirely");
+
+        Assert.False(cache.HasPriorFailure(subtitle));
+    }
+
+    [Fact]
+    public void HasPriorFailure_FalseAfterRemoveForPath()
+    {
+        var subtitle = WriteSubtitle("a.srt");
+
+        using var cache = NewCache(3);
+        cache.AddToCache(subtitle);
+        cache.RemoveForPath(subtitle);
+
+        Assert.False(cache.HasPriorFailure(subtitle));
     }
 
     [Fact]

@@ -119,13 +119,13 @@ public class SubsyncClientTests
 
     /// <summary>
     /// The orchestrator only ever passes a real situation for the specific
-    /// video-reference case; most jobs pass <see cref="EmbeddedSubtitleSituation.Irrelevant"/>
+    /// video-reference case; most jobs pass <see cref="JellyfinReportedSituation.Irrelevant"/>
     /// (the default), and the sidecar must see that as absent (null), not as
     /// an empty or missing-but-present property some serializer
     /// configuration could turn into "".
     /// </summary>
     [Fact]
-    public async Task Submit_OmitsEmbeddedSubtitleSituationWhenIrrelevant()
+    public async Task Submit_OmitsJellyfinReportedSituationWhenIrrelevant()
     {
         var (client, handler, _) = Build((request, _) =>
             request.RequestUri!.AbsolutePath == "/sync" ? Created() : JobStatus("done"));
@@ -133,7 +133,7 @@ public class SubsyncClientTests
         await PumpToCompletionAsync(StartSync(client, Config()), TimeSpan.FromSeconds(1));
 
         var submitted = JsonSerializer.Deserialize<JsonElement>(handler.Requests[0].Body!);
-        Assert.True(submitted.TryGetProperty("embedded_subtitle_situation", out var situation));
+        Assert.True(submitted.TryGetProperty("jellyfin_reported_situation", out var situation));
         Assert.Equal(JsonValueKind.Null, situation.ValueKind);
     }
 
@@ -143,12 +143,13 @@ public class SubsyncClientTests
     /// <c>SubsyncClient.ToWireValue</c>.
     /// </summary>
     [Theory]
-    [InlineData(EmbeddedSubtitleSituation.HasNoEmbeddedSubtitle, "none")]
-    [InlineData(EmbeddedSubtitleSituation.HasFullEmbeddedSubtitles, "full")]
-    [InlineData(EmbeddedSubtitleSituation.HasOnlyForcedEmbeddedSubtitles, "forced_only")]
-    [InlineData(EmbeddedSubtitleSituation.HasFullPgsEmbeddedSubtitles, "full_pgs")]
-    public async Task Submit_SendsTheEmbeddedSubtitleSituationUnderItsWireName(
-        EmbeddedSubtitleSituation situation, string wireValue)
+    [InlineData(JellyfinReportedSituation.HasNoEmbeddedSubtitle, "none")]
+    [InlineData(JellyfinReportedSituation.HasFullEmbeddedSubtitles, "full")]
+    [InlineData(JellyfinReportedSituation.HasOnlyForcedEmbeddedSubtitles, "forced_only")]
+    [InlineData(JellyfinReportedSituation.HasFullPgsEmbeddedSubtitles, "full_pgs")]
+    [InlineData(JellyfinReportedSituation.AttemptOnFailed, "attempt_on_failed")]
+    public async Task Submit_SendsTheJellyfinReportedSituationUnderItsWireName(
+        JellyfinReportedSituation situation, string wireValue)
     {
         var (client, handler, _) = Build((request, _) =>
             request.RequestUri!.AbsolutePath == "/sync" ? Created() : JobStatus("done"));
@@ -159,7 +160,7 @@ public class SubsyncClientTests
             TimeSpan.FromSeconds(1));
 
         var submitted = JsonSerializer.Deserialize<JsonElement>(handler.Requests[0].Body!);
-        Assert.Equal(wireValue, submitted.GetProperty("embedded_subtitle_situation").GetString());
+        Assert.Equal(wireValue, submitted.GetProperty("jellyfin_reported_situation").GetString());
     }
 
     /// <summary>
@@ -169,7 +170,7 @@ public class SubsyncClientTests
     /// situation itself.
     /// </summary>
     [Fact]
-    public async Task Submit_OmitsEmbeddedSubtitleIndexWhenNotGiven()
+    public async Task Submit_OmitsReferenceStreamIndexWhenNotGiven()
     {
         var (client, handler, _) = Build((request, _) =>
             request.RequestUri!.AbsolutePath == "/sync" ? Created() : JobStatus("done"));
@@ -177,7 +178,7 @@ public class SubsyncClientTests
         await PumpToCompletionAsync(StartSync(client, Config()), TimeSpan.FromSeconds(1));
 
         var submitted = JsonSerializer.Deserialize<JsonElement>(handler.Requests[0].Body!);
-        Assert.True(submitted.TryGetProperty("embedded_subtitle_index", out var index));
+        Assert.True(submitted.TryGetProperty("reference_stream_index", out var index));
         Assert.Equal(JsonValueKind.Null, index.ValueKind);
     }
 
@@ -187,18 +188,18 @@ public class SubsyncClientTests
     /// needs.
     /// </summary>
     [Fact]
-    public async Task Submit_SendsTheEmbeddedSubtitleIndexUnderItsWireName()
+    public async Task Submit_SendsTheReferenceStreamIndexUnderItsWireName()
     {
         var (client, handler, _) = Build((request, _) =>
             request.RequestUri!.AbsolutePath == "/sync" ? Created() : JobStatus("done"));
 
         await PumpToCompletionAsync(
             client.SyncAndWaitAsync(Config(), "/media/films/Movie", "Movie.mkv", "Movie.en.srt",
-                CancellationToken.None, EmbeddedSubtitleSituation.HasFullEmbeddedSubtitles, embeddedSubtitleIndex: 2),
+                CancellationToken.None, JellyfinReportedSituation.HasFullEmbeddedSubtitles, referenceStreamIndex: 2),
             TimeSpan.FromSeconds(1));
 
         var submitted = JsonSerializer.Deserialize<JsonElement>(handler.Requests[0].Body!);
-        Assert.Equal(2, submitted.GetProperty("embedded_subtitle_index").GetInt32());
+        Assert.Equal(2, submitted.GetProperty("reference_stream_index").GetInt32());
     }
 
     [Fact]

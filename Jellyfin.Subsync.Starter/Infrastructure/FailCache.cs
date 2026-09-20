@@ -105,6 +105,18 @@ public class FailCache : IFailCache
         return record.ConsecutiveFailures >= _maxConsecutiveFailures;
     }
 
+    public bool HasPriorFailure(string subtitlePath)
+    {
+        FailureRecord? record;
+        lock (_lock)
+        {
+            if (!_failures.TryGetValue(subtitlePath, out record))
+                return false;
+        }
+
+        return string.Equals(record.ContentHash, HashHex(subtitlePath), StringComparison.OrdinalIgnoreCase);
+    }
+
     public void AddToCache(string subtitlePath)
     {
         var hash = HashHex(subtitlePath);

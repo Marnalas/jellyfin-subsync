@@ -46,10 +46,27 @@ public class SubtitleWorkBuilderTests
         };
 
     private static ItemSubtitleWork Build(string? itemPath, params MediaStream[] streams)
-        => SubtitleWorkBuilder.BuildWork(itemPath, isDiscImageOrFolder: false, streams, DefaultConfig());
+        => SubtitleWorkBuilder.BuildWork(itemPath, isDiscImageOrFolder: false, streams, [], DefaultConfig());
 
     private static ItemSubtitleWork Build(string? itemPath, PluginConfiguration config, params MediaStream[] streams)
-        => SubtitleWorkBuilder.BuildWork(itemPath, isDiscImageOrFolder: false, streams, config);
+        => SubtitleWorkBuilder.BuildWork(itemPath, isDiscImageOrFolder: false, streams, [], config);
+
+    private static MediaStream Audio(int index = 0, int? bitRate = null, string? title = null, string? comment = null,
+        bool isDefault = false)
+        => new()
+        {
+            Type = MediaStreamType.Audio,
+            IsExternal = false,
+            Index = index,
+            BitRate = bitRate,
+            Title = title,
+            Comment = comment,
+            IsDefault = isDefault
+        };
+
+    private static ItemSubtitleWork BuildWithAudio(
+        string? itemPath, IReadOnlyList<MediaStream> audioStreams, params MediaStream[] streams)
+        => SubtitleWorkBuilder.BuildWork(itemPath, isDiscImageOrFolder: false, streams, audioStreams, DefaultConfig());
 
     // --- A. The cases the old regex got wrong -------------------------------
 
@@ -236,6 +253,7 @@ public class SubtitleWorkBuilderTests
             "/m/Movie.mkv",
             isDiscImageOrFolder: false,
             [External("/m/Movie.en.srt", 0), External("/m/Movie.en.sup", 1)],
+            [],
             config);
 
         Assert.NotNull(work.Group);
@@ -315,6 +333,7 @@ public class SubtitleWorkBuilderTests
             "/m/Movie/Movie.iso",
             isDiscImageOrFolder: true,
             [External("/m/Movie/Movie.en.srt")],
+            [],
             DefaultConfig());
 
         Assert.Equal(ItemSkipReason.PathIsDiscImageOrFolder, work.Reason);
@@ -334,7 +353,7 @@ public class SubtitleWorkBuilderTests
     // --- G2. Embedded subtitle situation detection ---------------------------
 
     /// <summary>
-    /// <see cref="SubtitleSyncGroup.EmbeddedSubtitleSituation"/> is the fact
+    /// <see cref="SubtitleSyncGroup.JellyfinReportedSituation"/> is the fact
     /// the orchestrator later reports to the sidecar - what it implies (if
     /// anything) about ffsubsync's own default alignment is the sidecar's
     /// call, not this method's. Embedded streams never affect which external
@@ -347,8 +366,8 @@ public class SubtitleWorkBuilderTests
         var work = Build("/m/Movie.mkv", External("/m/Movie.en.srt"), Embedded(isForced: true));
 
         Assert.NotNull(work.Group);
-        Assert.Equal(EmbeddedSubtitleSituation.HasOnlyForcedEmbeddedSubtitles, work.Group.EmbeddedSubtitleSituation);
-        Assert.Null(work.Group.EmbeddedSubtitleIndex);
+        Assert.Equal(JellyfinReportedSituation.HasOnlyForcedEmbeddedSubtitles, work.Group.JellyfinReportedSituation);
+        Assert.Null(work.Group.ReferenceStreamIndex);
     }
 
     /// <summary>
@@ -363,8 +382,8 @@ public class SubtitleWorkBuilderTests
         var work = Build("/m/Movie.mkv", External("/m/Movie.en.srt"), Embedded(3, isForced: false));
 
         Assert.NotNull(work.Group);
-        Assert.Equal(EmbeddedSubtitleSituation.HasFullEmbeddedSubtitles, work.Group.EmbeddedSubtitleSituation);
-        Assert.Equal(0, work.Group.EmbeddedSubtitleIndex);
+        Assert.Equal(JellyfinReportedSituation.HasFullEmbeddedSubtitles, work.Group.JellyfinReportedSituation);
+        Assert.Equal(0, work.Group.ReferenceStreamIndex);
     }
 
     /// <summary>
@@ -383,8 +402,8 @@ public class SubtitleWorkBuilderTests
             Embedded(1, isForced: false));
 
         Assert.NotNull(work.Group);
-        Assert.Equal(EmbeddedSubtitleSituation.HasFullEmbeddedSubtitles, work.Group.EmbeddedSubtitleSituation);
-        Assert.Equal(1, work.Group.EmbeddedSubtitleIndex);
+        Assert.Equal(JellyfinReportedSituation.HasFullEmbeddedSubtitles, work.Group.JellyfinReportedSituation);
+        Assert.Equal(1, work.Group.ReferenceStreamIndex);
     }
 
     /// <summary>
@@ -404,8 +423,8 @@ public class SubtitleWorkBuilderTests
             Embedded(2, isForced: false, isDefault: true));
 
         Assert.NotNull(work.Group);
-        Assert.Equal(EmbeddedSubtitleSituation.HasFullEmbeddedSubtitles, work.Group.EmbeddedSubtitleSituation);
-        Assert.Equal(1, work.Group.EmbeddedSubtitleIndex); // rank 1: second of the two embedded streams
+        Assert.Equal(JellyfinReportedSituation.HasFullEmbeddedSubtitles, work.Group.JellyfinReportedSituation);
+        Assert.Equal(1, work.Group.ReferenceStreamIndex); // rank 1: second of the two embedded streams
     }
 
     /// <summary>
@@ -422,8 +441,8 @@ public class SubtitleWorkBuilderTests
             Embedded(2, isForced: false));
 
         Assert.NotNull(work.Group);
-        Assert.Equal(EmbeddedSubtitleSituation.HasFullEmbeddedSubtitles, work.Group.EmbeddedSubtitleSituation);
-        Assert.Equal(0, work.Group.EmbeddedSubtitleIndex); // rank 0: container index 2 sorts before 5
+        Assert.Equal(JellyfinReportedSituation.HasFullEmbeddedSubtitles, work.Group.JellyfinReportedSituation);
+        Assert.Equal(0, work.Group.ReferenceStreamIndex); // rank 0: container index 2 sorts before 5
     }
 
     /// <summary>Both claiming default is exactly as unhelpful as neither - same fallback.</summary>
@@ -437,8 +456,8 @@ public class SubtitleWorkBuilderTests
             Embedded(2, isForced: false, isDefault: true));
 
         Assert.NotNull(work.Group);
-        Assert.Equal(EmbeddedSubtitleSituation.HasFullEmbeddedSubtitles, work.Group.EmbeddedSubtitleSituation);
-        Assert.Equal(0, work.Group.EmbeddedSubtitleIndex); // rank 0: container index 2 sorts before 5
+        Assert.Equal(JellyfinReportedSituation.HasFullEmbeddedSubtitles, work.Group.JellyfinReportedSituation);
+        Assert.Equal(0, work.Group.ReferenceStreamIndex); // rank 0: container index 2 sorts before 5
     }
 
     /// <summary>
@@ -452,8 +471,8 @@ public class SubtitleWorkBuilderTests
         var work = Build("/m/Movie.mkv", External("/m/Movie.en.srt"));
 
         Assert.NotNull(work.Group);
-        Assert.Equal(EmbeddedSubtitleSituation.HasNoEmbeddedSubtitle, work.Group.EmbeddedSubtitleSituation);
-        Assert.Null(work.Group.EmbeddedSubtitleIndex);
+        Assert.Equal(JellyfinReportedSituation.HasNoEmbeddedSubtitle, work.Group.JellyfinReportedSituation);
+        Assert.Null(work.Group.ReferenceStreamIndex);
     }
 
     // --- G3. Bitmap subtitle codecs (PGS/VobSub/DVB) -------------------------
@@ -474,8 +493,8 @@ public class SubtitleWorkBuilderTests
             Embedded(1, isForced: false, codec: "PGSSUB"));
 
         Assert.NotNull(work.Group);
-        Assert.Equal(EmbeddedSubtitleSituation.HasFullEmbeddedSubtitles, work.Group.EmbeddedSubtitleSituation);
-        Assert.Equal(0, work.Group.EmbeddedSubtitleIndex);
+        Assert.Equal(JellyfinReportedSituation.HasFullEmbeddedSubtitles, work.Group.JellyfinReportedSituation);
+        Assert.Equal(0, work.Group.ReferenceStreamIndex);
     }
 
     /// <summary>
@@ -494,8 +513,8 @@ public class SubtitleWorkBuilderTests
             Embedded(1, isForced: false, codec: "PGSSUB"));
 
         Assert.NotNull(work.Group);
-        Assert.Equal(EmbeddedSubtitleSituation.HasFullPgsEmbeddedSubtitles, work.Group.EmbeddedSubtitleSituation);
-        Assert.Equal(1, work.Group.EmbeddedSubtitleIndex);
+        Assert.Equal(JellyfinReportedSituation.HasFullPgsEmbeddedSubtitles, work.Group.JellyfinReportedSituation);
+        Assert.Equal(1, work.Group.ReferenceStreamIndex);
     }
 
     [Fact]
@@ -505,9 +524,9 @@ public class SubtitleWorkBuilderTests
             Embedded(4, isForced: false, codec: "PGSSUB"));
 
         Assert.NotNull(work.Group);
-        Assert.Equal(EmbeddedSubtitleSituation.HasFullPgsEmbeddedSubtitles, work.Group.EmbeddedSubtitleSituation);
+        Assert.Equal(JellyfinReportedSituation.HasFullPgsEmbeddedSubtitles, work.Group.JellyfinReportedSituation);
         Assert.Equal(0,
-            work.Group.EmbeddedSubtitleIndex); // rank 0: the sole embedded stream, despite container index 4
+            work.Group.ReferenceStreamIndex); // rank 0: the sole embedded stream, despite container index 4
     }
 
     [Fact]
@@ -516,8 +535,8 @@ public class SubtitleWorkBuilderTests
         var work = Build("/m/Movie.mkv", External("/m/Movie.en.srt"), Embedded(isForced: true, codec: "PGSSUB"));
 
         Assert.NotNull(work.Group);
-        Assert.Equal(EmbeddedSubtitleSituation.HasNoEmbeddedSubtitle, work.Group.EmbeddedSubtitleSituation);
-        Assert.Null(work.Group.EmbeddedSubtitleIndex);
+        Assert.Equal(JellyfinReportedSituation.HasNoEmbeddedSubtitle, work.Group.JellyfinReportedSituation);
+        Assert.Null(work.Group.ReferenceStreamIndex);
     }
 
     /// <summary>
@@ -538,8 +557,8 @@ public class SubtitleWorkBuilderTests
             Embedded(1, isForced: true, codec: "PGSSUB"));
 
         Assert.NotNull(work.Group);
-        Assert.Equal(EmbeddedSubtitleSituation.Irrelevant, work.Group.EmbeddedSubtitleSituation);
-        Assert.Null(work.Group.EmbeddedSubtitleIndex);
+        Assert.Equal(JellyfinReportedSituation.Irrelevant, work.Group.JellyfinReportedSituation);
+        Assert.Null(work.Group.ReferenceStreamIndex);
     }
 
     /// <summary>Unchanged from the plain forced-only-stub case - confirms no regression.</summary>
@@ -549,9 +568,9 @@ public class SubtitleWorkBuilderTests
         var work = Build("/m/Movie.mkv", External("/m/Movie.en.srt"), Embedded(isForced: true));
 
         Assert.NotNull(work.Group);
-        Assert.Equal(EmbeddedSubtitleSituation.HasOnlyForcedEmbeddedSubtitles,
-            work.Group.EmbeddedSubtitleSituation);
-        Assert.Null(work.Group.EmbeddedSubtitleIndex);
+        Assert.Equal(JellyfinReportedSituation.HasOnlyForcedEmbeddedSubtitles,
+            work.Group.JellyfinReportedSituation);
+        Assert.Null(work.Group.ReferenceStreamIndex);
     }
 
     /// <summary>
@@ -566,8 +585,8 @@ public class SubtitleWorkBuilderTests
         var work = Build("/m/Movie.mkv", External("/m/Movie.en.srt"), Embedded(isForced: false, codec: "DVDSUB"));
 
         Assert.NotNull(work.Group);
-        Assert.Equal(EmbeddedSubtitleSituation.HasNoEmbeddedSubtitle, work.Group.EmbeddedSubtitleSituation);
-        Assert.Null(work.Group.EmbeddedSubtitleIndex);
+        Assert.Equal(JellyfinReportedSituation.HasNoEmbeddedSubtitle, work.Group.JellyfinReportedSituation);
+        Assert.Null(work.Group.ReferenceStreamIndex);
     }
 
     /// <summary>
@@ -583,8 +602,8 @@ public class SubtitleWorkBuilderTests
             Embedded(4, isForced: false, codec: "PGSSUB"));
 
         Assert.NotNull(work.Group);
-        Assert.Equal(EmbeddedSubtitleSituation.HasNoEmbeddedSubtitle, work.Group.EmbeddedSubtitleSituation);
-        Assert.Null(work.Group.EmbeddedSubtitleIndex);
+        Assert.Equal(JellyfinReportedSituation.HasNoEmbeddedSubtitle, work.Group.JellyfinReportedSituation);
+        Assert.Null(work.Group.ReferenceStreamIndex);
     }
 
     /// <summary>
@@ -604,9 +623,9 @@ public class SubtitleWorkBuilderTests
             Embedded(1, isForced: false, codec: "PGSSUB"));
 
         Assert.NotNull(work.Group);
-        Assert.Equal(EmbeddedSubtitleSituation.HasOnlyForcedEmbeddedSubtitles,
-            work.Group.EmbeddedSubtitleSituation);
-        Assert.Null(work.Group.EmbeddedSubtitleIndex);
+        Assert.Equal(JellyfinReportedSituation.HasOnlyForcedEmbeddedSubtitles,
+            work.Group.JellyfinReportedSituation);
+        Assert.Null(work.Group.ReferenceStreamIndex);
     }
 
     /// <summary>
@@ -625,8 +644,99 @@ public class SubtitleWorkBuilderTests
             Embedded(1, isForced: true, codec: "PGSSUB"));
 
         Assert.NotNull(work.Group);
-        Assert.Equal(EmbeddedSubtitleSituation.HasNoEmbeddedSubtitle, work.Group.EmbeddedSubtitleSituation);
-        Assert.Null(work.Group.EmbeddedSubtitleIndex);
+        Assert.Equal(JellyfinReportedSituation.HasNoEmbeddedSubtitle, work.Group.JellyfinReportedSituation);
+        Assert.Null(work.Group.ReferenceStreamIndex);
+    }
+
+    // --- G4. Fallback audio stream picking -----------------------------------
+
+    /// <summary>
+    /// <see cref="SubtitleSyncGroup.FallbackAudioStreamIndex"/> is computed
+    /// independently of every embedded-subtitle fact above - only
+    /// <see cref="Application.SubtitleSyncOrchestrator"/> decides whether it
+    /// ever gets used (when it reports <see cref="JellyfinReportedSituation.AttemptOnFailed"/>).
+    /// </summary>
+    [Fact]
+    public void NoAudioStreams_FallbackAudioStreamIndexIsNull()
+    {
+        var work = BuildWithAudio("/m/Movie.mkv", [], External("/m/Movie.en.srt"));
+
+        Assert.NotNull(work.Group);
+        Assert.Null(work.Group.FallbackAudioStreamIndex);
+    }
+
+    [Fact]
+    public void SoleAudioStream_IsPickedAtRankZero()
+    {
+        var work = BuildWithAudio("/m/Movie.mkv", [Audio(3, bitRate: 128_000)], External("/m/Movie.en.srt"));
+
+        Assert.NotNull(work.Group);
+        Assert.Equal(0, work.Group.FallbackAudioStreamIndex);
+    }
+
+    /// <summary>
+    /// The reported index is the stream's rank among the video's own audio
+    /// streams only (what ffmpeg's "a:N" means), not its raw MediaStream.Index.
+    /// </summary>
+    [Fact]
+    public void FallbackAudioStreamIndex_IsRankNotContainerIndex()
+    {
+        var work = BuildWithAudio(
+            "/m/Movie.mkv",
+            [Audio(8, bitRate: 999_000), Audio(2, bitRate: 128_000), Audio(5, bitRate: 999_000)],
+            External("/m/Movie.en.srt"));
+
+        Assert.NotNull(work.Group);
+        Assert.Equal(0, work.Group.FallbackAudioStreamIndex); // rank 0: container index 2 sorts first
+    }
+
+    /// <summary>
+    /// The container's own default-disposition flag beats bitrate entirely -
+    /// it's a real signal for "the" audio track, the same reasoning already
+    /// used for picking a default text-subtitle stream above.
+    /// </summary>
+    [Fact]
+    public void DefaultFlaggedStream_IsPickedRegardlessOfBitrate()
+    {
+        var work = BuildWithAudio(
+            "/m/Movie.mkv",
+            [Audio(0, bitRate: 64_000), Audio(1, bitRate: 640_000, isDefault: true)],
+            External("/m/Movie.en.srt"));
+
+        Assert.NotNull(work.Group);
+        // Rank 1 (the 640kbps stream) despite the lower-bitrate stream at
+        // rank 0 - it wins purely because it's flagged as the default.
+        Assert.Equal(1, work.Group.FallbackAudioStreamIndex);
+    }
+
+    /// <summary>
+    /// With no default-disposition flag to break the tie, fall back to the
+    /// lowest bitrate for a deterministic pick - same fallback shape as the
+    /// text-subtitle case above.
+    /// </summary>
+    [Fact]
+    public void NoDefaultFlaggedStream_FallsBackToTheLowestBitrate()
+    {
+        var work = BuildWithAudio(
+            "/m/Movie.mkv",
+            [Audio(0, bitRate: 640_000), Audio(1, bitRate: 128_000), Audio(2, bitRate: 384_000)],
+            External("/m/Movie.en.srt"));
+
+        Assert.NotNull(work.Group);
+        Assert.Equal(1, work.Group.FallbackAudioStreamIndex); // rank 1: container index 1, the 128kbps stream
+    }
+
+    /// <summary>Whichever default-flagged stream comes first wins when several claim it.</summary>
+    [Fact]
+    public void SeveralDefaultFlaggedStreams_PicksTheFirstOne()
+    {
+        var work = BuildWithAudio(
+            "/m/Movie.mkv",
+            [Audio(0, bitRate: 640_000, isDefault: true), Audio(1, bitRate: 128_000, isDefault: true)],
+            External("/m/Movie.en.srt"));
+
+        Assert.NotNull(work.Group);
+        Assert.Equal(0, work.Group.FallbackAudioStreamIndex);
     }
 
     // --- G. Ordering ---------------------------------------------------------
@@ -767,7 +877,7 @@ public class BuildCandidateListTests
     public void MapsStreamMetadata()
     {
         var stream = External("/m/Movie.ar.srt", index: 7, language: "ara", title: "Arabic");
-        var work = SubtitleWorkBuilder.BuildWork("/m/Movie.mkv", isDiscImageOrFolder: false, [stream],
+        var work = SubtitleWorkBuilder.BuildWork("/m/Movie.mkv", isDiscImageOrFolder: false, [stream], [],
             DefaultConfig());
         Assert.NotNull(work.Group);
 
@@ -786,7 +896,7 @@ public class BuildCandidateListTests
     public void OrderMatchesGroupOrder()
     {
         MediaStream[] streams = [External("/m/Movie.fr.srt", 5), External("/m/Movie.en.srt", 1)];
-        var work = SubtitleWorkBuilder.BuildWork("/m/Movie.mkv", isDiscImageOrFolder: false, streams,
+        var work = SubtitleWorkBuilder.BuildWork("/m/Movie.mkv", isDiscImageOrFolder: false, streams, [],
             DefaultConfig());
         Assert.NotNull(work.Group);
 
@@ -799,7 +909,7 @@ public class BuildCandidateListTests
     public void IsAlreadySyncedReflectsTheInjectedPredicate()
     {
         MediaStream[] streams = [External("/m/Movie.en.srt", 0), External("/m/Movie.fr.srt", 1)];
-        var work = SubtitleWorkBuilder.BuildWork("/m/Movie.mkv", isDiscImageOrFolder: false, streams,
+        var work = SubtitleWorkBuilder.BuildWork("/m/Movie.mkv", isDiscImageOrFolder: false, streams, [],
             DefaultConfig());
         Assert.NotNull(work.Group);
 
@@ -814,7 +924,7 @@ public class BuildCandidateListTests
     public void ForcedFlagComesFromTheGroupsForcedSet()
     {
         MediaStream[] streams = [External("/m/Movie.en.srt", 0, isForced: true), External("/m/Movie.fr.srt", 1)];
-        var work = SubtitleWorkBuilder.BuildWork("/m/Movie.mkv", isDiscImageOrFolder: false, streams,
+        var work = SubtitleWorkBuilder.BuildWork("/m/Movie.mkv", isDiscImageOrFolder: false, streams, [],
             DefaultConfig());
         Assert.NotNull(work.Group);
 

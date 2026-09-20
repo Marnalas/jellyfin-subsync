@@ -54,22 +54,27 @@ public interface ISubsyncClient
     /// <param name="referenceFilename">What to align the subtitle against.</param>
     /// <param name="subtitleFilename">The subtitle file to align and overwrite.</param>
     /// <param name="cancellationToken">Cancels the submit-and-poll round trip.</param>
-    /// <param name="embeddedSubtitleSituation">
+    /// <param name="jellyfinReportedSituation">
     /// What Jellyfin reports about the video's own embedded subtitle
-    /// stream(s) - a fact from Jellyfin's data, not an instruction. What (if
-    /// anything) it implies for the sidecar's own alignment strategy is the
-    /// sidecar's call, not this plugin's. <see cref="EmbeddedSubtitleSituation.Irrelevant"/>
+    /// stream(s) - a fact from Jellyfin's data, not an instruction - or,
+    /// for <see cref="JellyfinReportedSituation.AttemptOnFailed"/>, an opt-in
+    /// request that this attempt follows a prior failure, which takes
+    /// priority over the embedded-subtitle fact. What (if anything) either
+    /// implies for the sidecar's own alignment strategy is the sidecar's
+    /// call, not this plugin's. <see cref="JellyfinReportedSituation.Irrelevant"/>
     /// (the default) when <paramref name="referenceFilename"/> isn't the
     /// video, where it has no bearing on anything the sidecar does.
     /// </param>
-    /// <param name="embeddedSubtitleIndex">
-    /// The specific embedded stream <paramref name="embeddedSubtitleSituation"/>
-    /// refers to, when it's <see cref="EmbeddedSubtitleSituation.HasFullEmbeddedSubtitles"/>
-    /// or <see cref="EmbeddedSubtitleSituation.HasFullPgsEmbeddedSubtitles"/>;
-    /// null otherwise. This is the stream's 0-based rank among the video's
-    /// own embedded subtitle streams only (text and bitmap codecs alike, in
-    /// container order) - not its <c>MediaStream.Index</c> among every
-    /// stream in the file. Same posture as the situation itself - a fact,
+    /// <param name="referenceStreamIndex">
+    /// The specific stream <paramref name="jellyfinReportedSituation"/>
+    /// refers to, when it's one of <see cref="JellyfinReportedSituation.HasFullEmbeddedSubtitles"/>,
+    /// <see cref="JellyfinReportedSituation.HasFullPgsEmbeddedSubtitles"/> or
+    /// <see cref="JellyfinReportedSituation.AttemptOnFailed"/>; null otherwise.
+    /// This is the stream's 0-based rank among the video's own streams of
+    /// one type only, in container order - subtitle streams (text and
+    /// bitmap codecs alike) for the first two situations, audio streams for
+    /// the third - not its <c>MediaStream.Index</c> among every stream in
+    /// the file. Same posture as the situation itself - a fact or request,
     /// not an instruction; what the sidecar does with it is its own call.
     /// </param>
     Task<SyncOutcome> SyncAndWaitAsync(
@@ -78,6 +83,6 @@ public interface ISubsyncClient
         string referenceFilename,
         string subtitleFilename,
         CancellationToken cancellationToken,
-        EmbeddedSubtitleSituation embeddedSubtitleSituation = EmbeddedSubtitleSituation.Irrelevant,
-        int? embeddedSubtitleIndex = null);
+        JellyfinReportedSituation jellyfinReportedSituation = JellyfinReportedSituation.Irrelevant,
+        int? referenceStreamIndex = null);
 }

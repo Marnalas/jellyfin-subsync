@@ -97,4 +97,16 @@ public class PluginConfiguration : BasePluginConfiguration
     /// action.
     /// </summary>
     public int MaxConsecutiveFailures { get; set; } = 3;
+
+    /// <summary>
+    /// When on, an attempt on a subtitle whose current content has already
+    /// failed to sync at least once reports a "retry" request to the
+    /// sidecar instead of the plugin's routine per-job report - taking
+    /// priority over it for that attempt. What exactly the sidecar does
+    /// with that request is entirely its own call (see the --vad entry in
+    /// docs/CONFIGURATION.md for its current behavior), not something this
+    /// plugin has an opinion on. Off by default, since it changes sync
+    /// behavior from what a normal attempt would otherwise get.
+    /// </summary>
+    public bool AttemptFallbackOnFailed { get; set; } = false;
 }

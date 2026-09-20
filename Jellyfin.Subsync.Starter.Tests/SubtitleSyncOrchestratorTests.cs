@@ -34,7 +34,7 @@ public sealed class SubtitleSyncOrchestratorTests : IDisposable
 
     private sealed class FakeSubsyncClient(SyncOutcome outcome) : ISubsyncClient
     {
-        public List<(string Folder, string Reference, string Subtitle, EmbeddedSubtitleSituation Situation,
+        public List<(string Folder, string Reference, string Subtitle, JellyfinReportedSituation Situation,
             int? EmbeddedIndex)> Calls { get; } = [];
 
         public Task<bool> IsHealthyAsync(PluginConfiguration config, CancellationToken cancellationToken) =>
@@ -43,10 +43,10 @@ public sealed class SubtitleSyncOrchestratorTests : IDisposable
         public Task<SyncOutcome> SyncAndWaitAsync(
             PluginConfiguration config, string folder, string referenceFilename, string subtitleFilename,
             CancellationToken cancellationToken,
-            EmbeddedSubtitleSituation embeddedSubtitleSituation = EmbeddedSubtitleSituation.Irrelevant,
-            int? embeddedSubtitleIndex = null)
+            JellyfinReportedSituation jellyfinReportedSituation = JellyfinReportedSituation.Irrelevant,
+            int? referenceStreamIndex = null)
         {
-            Calls.Add((folder, referenceFilename, subtitleFilename, embeddedSubtitleSituation, embeddedSubtitleIndex));
+            Calls.Add((folder, referenceFilename, subtitleFilename, jellyfinReportedSituation, referenceStreamIndex));
             return Task.FromResult(outcome);
         }
     }
@@ -100,10 +100,13 @@ public sealed class SubtitleSyncOrchestratorTests : IDisposable
     private sealed class FakeFailCache : IFailCache
     {
         public HashSet<string> Skipped { get; } = [];
+        public HashSet<string> PriorFailures { get; } = [];
         public List<string> RecordedFailures { get; } = [];
         public List<string> ClearedFailures { get; } = [];
 
         public bool IsCached(string subtitlePath) => Skipped.Contains(subtitlePath);
+
+        public bool HasPriorFailure(string subtitlePath) => PriorFailures.Contains(subtitlePath);
 
         public void AddToCache(string subtitlePath) => RecordedFailures.Add(subtitlePath);
 
@@ -124,12 +127,13 @@ public sealed class SubtitleSyncOrchestratorTests : IDisposable
         }
     }
 
-    private PluginConfiguration Config(bool mapped = true) => new()
+    private PluginConfiguration Config(bool mapped = true, bool AttemptFallbackOnFailed = false) => new()
     {
         SidecarUrl = "http://sidecar:8000",
         WatchedPathsMaps = mapped
             ? [new PathMapEntry { JellyfinPath = _library, SidecarPath = "/media/sidecar" }]
-            : []
+            : [],
+        AttemptFallbackOnFailed = AttemptFallbackOnFailed
     };
 
     private string Write(string name)
@@ -314,11 +318,11 @@ public sealed class SubtitleSyncOrchestratorTests : IDisposable
     /// stops at reporting it accurately.
     /// </summary>
     [Theory]
-    [InlineData(EmbeddedSubtitleSituation.HasOnlyForcedEmbeddedSubtitles, null)]
-    [InlineData(EmbeddedSubtitleSituation.HasFullEmbeddedSubtitles, 2)]
-    [InlineData(EmbeddedSubtitleSituation.HasFullPgsEmbeddedSubtitles, 3)]
+    [InlineData(JellyfinReportedSituation.HasOnlyForcedEmbeddedSubtitles, null)]
+    [InlineData(JellyfinReportedSituation.HasFullEmbeddedSubtitles, 2)]
+    [InlineData(JellyfinReportedSituation.HasFullPgsEmbeddedSubtitles, 3)]
     public async Task VideoReference_ReportsTheSituationAndIndexUnchanged(
-        EmbeddedSubtitleSituation situation, int? embeddedIndex)
+        JellyfinReportedSituation situation, int? embeddedIndex)
     {
         var video = Write("Movie.mkv");
         var subtitle = Write("Movie.en.srt");
@@ -328,8 +332,8 @@ public sealed class SubtitleSyncOrchestratorTests : IDisposable
 
         await orchestrator.ProcessAsync(
             Config(),
-            new SubtitleSyncGroup(video, [subtitle], EmbeddedSubtitleSituation: situation,
-                EmbeddedSubtitleIndex: embeddedIndex),
+            new SubtitleSyncGroup(video, [subtitle], JellyfinReportedSituation: situation,
+                ReferenceStreamIndex: embeddedIndex),
             subtitle,
             CancellationToken.None);
 
@@ -342,15 +346,15 @@ public sealed class SubtitleSyncOrchestratorTests : IDisposable
     /// The embedded subtitle situation only matters when the sidecar would
     /// otherwise be deciding on its own what to align against - it has no
     /// bearing on anything when the reference is another subtitle file, so
-    /// <see cref="EmbeddedSubtitleSituation.Irrelevant"/> (and a null index)
+    /// <see cref="JellyfinReportedSituation.Irrelevant"/> (and a null index)
     /// is reported instead of the group's real facts, regardless of what
     /// they are.
     /// </summary>
     [Theory]
-    [InlineData(EmbeddedSubtitleSituation.HasOnlyForcedEmbeddedSubtitles, null)]
-    [InlineData(EmbeddedSubtitleSituation.HasFullPgsEmbeddedSubtitles, 3)]
+    [InlineData(JellyfinReportedSituation.HasOnlyForcedEmbeddedSubtitles, null)]
+    [InlineData(JellyfinReportedSituation.HasFullPgsEmbeddedSubtitles, 3)]
     public async Task SiblingReference_ReportsIrrelevantRegardlessOfSituation(
-        EmbeddedSubtitleSituation situation, int? embeddedIndex)
+        JellyfinReportedSituation situation, int? embeddedIndex)
     {
         var video = Write("Movie.mkv");
         var synced = Write("Movie.en.srt");
@@ -363,13 +367,13 @@ public sealed class SubtitleSyncOrchestratorTests : IDisposable
 
         await orchestrator.ProcessAsync(
             Config(),
-            new SubtitleSyncGroup(video, [synced, pending], EmbeddedSubtitleSituation: situation,
-                EmbeddedSubtitleIndex: embeddedIndex),
+            new SubtitleSyncGroup(video, [synced, pending], JellyfinReportedSituation: situation,
+                ReferenceStreamIndex: embeddedIndex),
             pending,
             CancellationToken.None);
 
         var (_, _, _, reportedSituation, reportedIndex) = Assert.Single(client.Calls);
-        Assert.Equal(EmbeddedSubtitleSituation.Irrelevant, reportedSituation);
+        Assert.Equal(JellyfinReportedSituation.Irrelevant, reportedSituation);
         Assert.Null(reportedIndex);
     }
 
@@ -391,7 +395,116 @@ public sealed class SubtitleSyncOrchestratorTests : IDisposable
             Config(), new SubtitleSyncGroup(video, [subtitle]), subtitle, CancellationToken.None);
 
         var (_, _, _, situation, _) = Assert.Single(client.Calls);
-        Assert.Equal(EmbeddedSubtitleSituation.Irrelevant, situation);
+        Assert.Equal(JellyfinReportedSituation.Irrelevant, situation);
+    }
+
+    /// <summary>
+    /// The priority rule: with the opt-in on and a prior failure recorded
+    /// for this exact subtitle, AttemptOnFailed (and its accompanying audio
+    /// index) replaces whatever embedded-subtitle situation/index the group
+    /// itself carries - here, a full-embedded-subtitles fact that would
+    /// otherwise have been reported as-is.
+    /// </summary>
+    [Fact]
+    public async Task AttemptFallbackOnFailedWithPriorFailure_ReportsRetryOnFailInsteadOfTheGroupsSituation()
+    {
+        var video = Write("Movie.mkv");
+        var subtitle = Write("Movie.en.srt");
+        var client = new FakeSubsyncClient(SyncOutcome.Synced);
+        var failCache = new FakeFailCache();
+        failCache.PriorFailures.Add(subtitle);
+        var orchestrator = new SubtitleSyncOrchestrator(client, new FakeSkipCache(), failCache, NullLogger.Instance,
+            new FakeFolderChangeSuppressor());
+
+        await orchestrator.ProcessAsync(
+            Config(AttemptFallbackOnFailed: true),
+            new SubtitleSyncGroup(video, [subtitle],
+                JellyfinReportedSituation: JellyfinReportedSituation.HasFullEmbeddedSubtitles,
+                ReferenceStreamIndex: 2,
+                FallbackAudioStreamIndex: 5),
+            subtitle,
+            CancellationToken.None);
+
+        var (_, _, _, reportedSituation, reportedIndex) = Assert.Single(client.Calls);
+        Assert.Equal(JellyfinReportedSituation.AttemptOnFailed, reportedSituation);
+        Assert.Equal(5, reportedIndex); // the group's FallbackAudioStreamIndex, not its ReferenceStreamIndex
+    }
+
+    [Fact]
+    public async Task AttemptFallbackOnFailedOff_ReportsTheGroupsOwnSituationEvenWithAPriorFailure()
+    {
+        var video = Write("Movie.mkv");
+        var subtitle = Write("Movie.en.srt");
+        var client = new FakeSubsyncClient(SyncOutcome.Synced);
+        var failCache = new FakeFailCache();
+        failCache.PriorFailures.Add(subtitle);
+        var orchestrator = new SubtitleSyncOrchestrator(client, new FakeSkipCache(), failCache, NullLogger.Instance,
+            new FakeFolderChangeSuppressor());
+
+        await orchestrator.ProcessAsync(
+            Config(AttemptFallbackOnFailed: false),
+            new SubtitleSyncGroup(video, [subtitle],
+                JellyfinReportedSituation: JellyfinReportedSituation.HasFullEmbeddedSubtitles,
+                ReferenceStreamIndex: 2,
+                FallbackAudioStreamIndex: 5),
+            subtitle,
+            CancellationToken.None);
+
+        var (_, _, _, reportedSituation, reportedIndex) = Assert.Single(client.Calls);
+        Assert.Equal(JellyfinReportedSituation.HasFullEmbeddedSubtitles, reportedSituation);
+        Assert.Equal(2, reportedIndex);
+    }
+
+    [Fact]
+    public async Task AttemptFallbackOnFailedOnWithNoPriorFailure_ReportsTheGroupsOwnSituation()
+    {
+        var video = Write("Movie.mkv");
+        var subtitle = Write("Movie.en.srt");
+        var client = new FakeSubsyncClient(SyncOutcome.Synced);
+        var orchestrator = new SubtitleSyncOrchestrator(client, new FakeSkipCache(), new FakeFailCache(),
+            NullLogger.Instance, new FakeFolderChangeSuppressor());
+
+        await orchestrator.ProcessAsync(
+            Config(AttemptFallbackOnFailed: true),
+            new SubtitleSyncGroup(video, [subtitle],
+                JellyfinReportedSituation: JellyfinReportedSituation.HasFullEmbeddedSubtitles,
+                ReferenceStreamIndex: 2,
+                FallbackAudioStreamIndex: 5),
+            subtitle,
+            CancellationToken.None);
+
+        var (_, _, _, reportedSituation, reportedIndex) = Assert.Single(client.Calls);
+        Assert.Equal(JellyfinReportedSituation.HasFullEmbeddedSubtitles, reportedSituation);
+        Assert.Equal(2, reportedIndex);
+    }
+
+    /// <summary>
+    /// AttemptOnFailed only makes sense when the sidecar would be aligning
+    /// against the video itself - same gate as every other situation.
+    /// </summary>
+    [Fact]
+    public async Task AttemptFallbackOnFailedWithPriorFailure_SiblingReferenceStillReportsIrrelevant()
+    {
+        var video = Write("Movie.mkv");
+        var synced = Write("Movie.en.srt");
+        var pending = Write("Movie.fr.srt");
+        var client = new FakeSubsyncClient(SyncOutcome.Synced);
+        var skipCache = new FakeSkipCache();
+        skipCache.Synced.Add(synced);
+        var failCache = new FakeFailCache();
+        failCache.PriorFailures.Add(pending);
+        var orchestrator = new SubtitleSyncOrchestrator(client, skipCache, failCache, NullLogger.Instance,
+            new FakeFolderChangeSuppressor());
+
+        await orchestrator.ProcessAsync(
+            Config(AttemptFallbackOnFailed: true),
+            new SubtitleSyncGroup(video, [synced, pending], FallbackAudioStreamIndex: 5),
+            pending,
+            CancellationToken.None);
+
+        var (_, _, _, reportedSituation, reportedIndex) = Assert.Single(client.Calls);
+        Assert.Equal(JellyfinReportedSituation.Irrelevant, reportedSituation);
+        Assert.Null(reportedIndex);
     }
 
     /// <summary>
@@ -492,8 +605,8 @@ public sealed class SubtitleSyncOrchestratorTests : IDisposable
         public Task<SyncOutcome> SyncAndWaitAsync(
             PluginConfiguration config, string folder, string referenceFilename, string subtitleFilename,
             CancellationToken cancellationToken,
-            EmbeddedSubtitleSituation embeddedSubtitleSituation = EmbeddedSubtitleSituation.Irrelevant,
-            int? embeddedSubtitleIndex = null) =>
+            JellyfinReportedSituation jellyfinReportedSituation = JellyfinReportedSituation.Irrelevant,
+            int? referenceStreamIndex = null) =>
             throw new InvalidOperationException("sidecar exploded");
     }
 
@@ -507,8 +620,8 @@ public sealed class SubtitleSyncOrchestratorTests : IDisposable
         public Task<SyncOutcome> SyncAndWaitAsync(
             PluginConfiguration config, string folder, string referenceFilename, string subtitleFilename,
             CancellationToken cancellationToken,
-            EmbeddedSubtitleSituation embeddedSubtitleSituation = EmbeddedSubtitleSituation.Irrelevant,
-            int? embeddedSubtitleIndex = null)
+            JellyfinReportedSituation jellyfinReportedSituation = JellyfinReportedSituation.Irrelevant,
+            int? referenceStreamIndex = null)
         {
             ActiveFoldersDuringCall.AddRange(suppressor.ActiveFolders);
             return Task.FromResult(SyncOutcome.Synced);
