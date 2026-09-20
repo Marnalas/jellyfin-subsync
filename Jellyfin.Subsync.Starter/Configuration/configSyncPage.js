@@ -169,7 +169,7 @@ function buildSubtitlePanelHtml(data) {
         return '<div class="fieldDescription">No eligible subtitles to sync individually (' + escapeHtml(data.reason) + ').</div>';
 
     const targetOptions = subtitles.map(function (c) {
-        return '<option value="' + c.index + '">' + escapeHtml(subtitleOptionLabel(c)) + '</option>';
+        return '<option value="' + c.index + '">' + escapeHtml(subtitleOptionLabel('External subtitle', c)) + '</option>';
     }).join('');
 
     return '' +
