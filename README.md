@@ -111,7 +111,7 @@ smoke test are in [Installation](docs/INSTALLATION.md).
 ## Roadmap
 
 - Allow single item sync to target a specific embedded subtitle
-- When making a new attempt on a failed subtitle force --vad webrtc (should be opt-in)
+- Update INSTALLATION.md with new plugin options
 
 ## Thanks
 
