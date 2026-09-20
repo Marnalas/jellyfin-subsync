@@ -238,9 +238,10 @@ jobs:
             latest=${{ needs.channel.outputs.is_test == 'true' && 'false' || 'true' }}
           labels: |
             org.opencontainers.image.title=Subsync Sidecar
-            org.opencontainers.image.description=Automatically re-syncs out-of-sync subtitles using ffsubsync.labels: |
+            org.opencontainers.image.description=Automatically re-syncs out-of-sync subtitles using ffsubsync.
             org.opencontainers.image.source=https://github.com/Marnalas/jellyfin-subsync
             org.opencontainers.image.documentation=https://github.com/Marnalas/jellyfin-subsync
+            org.opencontainers.image.version=${{ needs.check-version.outputs.version }}
           annotations: |
             org.opencontainers.image.readme-file=README.md
 
