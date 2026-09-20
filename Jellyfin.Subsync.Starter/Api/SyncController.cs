@@ -324,10 +324,9 @@ public class SyncController(
         }
 
         var removed = skipCache.RemoveForPaths([target.Path]);
-        var removedFailures = failCache.RemoveForPaths([target.Path]);
         logger.LogInformation(
-            "Subsync cache: cleared {Count} skip-cache and {FailureCount} fail-cache entr(ies) for {Subtitle}",
-            removed, removedFailures, target.Path);
+            "Subsync cache: cleared {Count} skip-cache entr(ies) for {Subtitle}",
+            removed, target.Path);
 
         var orchestrator = new SubtitleSyncOrchestrator(client, skipCache, failCache, logger, suppressor);
         object result;
@@ -355,7 +354,7 @@ public class SyncController(
         }
 
         return Ok(new
-            { cleared = removed + removedFailures, reason = work.Reason.ToString(), results = new[] { result } });
+            { cleared = removed, reason = work.Reason.ToString(), results = new[] { result } });
     }
 
     private bool IsSweepRunning() =>
