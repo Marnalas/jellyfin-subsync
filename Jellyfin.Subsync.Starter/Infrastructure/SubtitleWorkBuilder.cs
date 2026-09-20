@@ -300,7 +300,8 @@ internal static class SubtitleWorkBuilder
         [
             .. audioStreams
                 .Where(stream => stream is { Type: MediaStreamType.Audio, IsExternal: false })
-                .Select(stream => new EmbeddedAudioCandidate(stream.Index, stream.Language, stream.Title))
+                .Select(stream => new EmbeddedAudioCandidate(
+                    stream.Index, stream.Language, stream.Title, stream.Codec, stream.Channels, stream.ChannelLayout))
         ];
 
     /// <summary>

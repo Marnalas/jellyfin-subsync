@@ -969,7 +969,8 @@ public class BuildCandidateListTests
 
     private static MediaStream Embedded(
         int index, MediaStreamType type = MediaStreamType.Subtitle, string? codec = null,
-        string? language = null, string? title = null, bool isForced = false, bool isDefault = false)
+        string? language = null, string? title = null, bool isForced = false, bool isDefault = false,
+        int? channels = null, string? channelLayout = null)
         => new()
         {
             Type = type,
@@ -979,7 +980,9 @@ public class BuildCandidateListTests
             Language = language,
             Title = title,
             IsForced = isForced,
-            IsDefault = isDefault
+            IsDefault = isDefault,
+            Channels = channels,
+            ChannelLayout = channelLayout
         };
 
     [Fact]
@@ -1047,13 +1050,23 @@ public class BuildCandidateListTests
     {
         MediaStream[] streams =
         [
-            Embedded(0, type: MediaStreamType.Audio, language: "eng"),
-            Embedded(1, type: MediaStreamType.Audio, language: "fra"),
+            Embedded(0, type: MediaStreamType.Audio, codec: "eac3", language: "eng", channels: 6, channelLayout: "5.1"),
+            Embedded(1, type: MediaStreamType.Audio, codec: "aac", language: "fra", channels: 2),
             External("/m/Movie.en.srt", index: 2)
         ];
 
         var candidates = SubtitleWorkBuilder.BuildEmbeddedAudioCandidates(streams);
 
         Assert.Equal([0, 1], candidates.Select(c => c.Index));
+
+        var eng = candidates.Single(c => c.Index == 0);
+        Assert.Equal("eac3", eng.Codec);
+        Assert.Equal(6, eng.Channels);
+        Assert.Equal("5.1", eng.ChannelLayout);
+
+        var fra = candidates.Single(c => c.Index == 1);
+        Assert.Equal("aac", fra.Codec);
+        Assert.Equal(2, fra.Channels);
+        Assert.Null(fra.ChannelLayout);
     }
 }

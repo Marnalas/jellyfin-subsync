@@ -108,6 +108,11 @@ smoke test are in [Installation](docs/INSTALLATION.md).
 | [Breaking changes](docs/BREAKING_CHANGES.md) | Upgrade notes per version |
 | [Contributing](CONTRIBUTING.md) | Branches, versioning, and testing requirements for PRs |
 
+## Roadmap / TODO list
+
+- Nothing for now, everything done, congratz' me
+[You have a suggestion? Open a [feature request](.github/ISSUE_TEMPLATE/feature_request.md) ]
+
 ## Thanks
 
 This plugin is just glue - all the actual subtitle-sync work is done by:

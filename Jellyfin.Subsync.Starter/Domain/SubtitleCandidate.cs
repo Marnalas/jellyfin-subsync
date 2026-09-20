@@ -48,4 +48,10 @@ internal sealed record EmbeddedSubtitleCandidate(int Index, string? Language, st
 /// <see cref="Infrastructure.SubtitleWorkBuilder.BuildEmbeddedAudioCandidates"/>.
 /// </summary>
 /// <param name="Index">The underlying MediaStream's raw, container-wide index - not its per-type rank.</param>
-internal sealed record EmbeddedAudioCandidate(int Index, string? Language, string? Title);
+internal sealed record EmbeddedAudioCandidate(
+    int Index,
+    string? Language,
+    string? Title,
+    string? Codec,
+    int? Channels,
+    string? ChannelLayout);

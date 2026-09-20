@@ -90,7 +90,7 @@ function renderSyncSummary(result) {
 // list); when Jellyfin doesn't recognize the code, languageName is null and
 // this falls back to the raw code (candidate.language) itself, same as
 // Jellyfin's own UI does.
-function subtitleOptionLabel(candidate) {
+function subtitleOptionLabel(prefix, candidate) {
     const languageName = candidate.languageName || candidate.language;
     const base = candidate.title && languageName
         ? candidate.title + ' (' + languageName + ')'
@@ -98,18 +98,32 @@ function subtitleOptionLabel(candidate) {
 
     const flags = [candidate.isAlreadySynced ? 'synced' : (candidate.hasFailed ? 'sync failed' : 'not yet synced')];
     if (candidate.isForced) flags.push('forced');
-    return base + ' (' + flags.join(', ') + ')';
+    return prefix + ': ' + base + ' (' + flags.join(', ') + ')';
 }
 
 // Same "Title (Language)"/fallback logic as subtitleOptionLabel, prefixed
 // with what kind of stream this is instead of a synced/failed state -
 // embedded streams have no skip/fail-cache entry of their own to report.
-function embeddedStreamOptionLabel(prefix, candidate) {
+// extraDetails, when given, are extra descriptors (e.g. codec/channels for
+// audio streams) joined alongside the language inside the same parens.
+function embeddedStreamOptionLabel(prefix, candidate, extraDetails) {
     const languageName = candidate.languageName || candidate.language;
-    const base = candidate.title && languageName
-        ? candidate.title + ' (' + languageName + ')'
-        : (candidate.title || languageName || ('Track ' + candidate.index));
+    const parts = [languageName].concat(extraDetails || []).filter(Boolean);
+    const base = candidate.title && parts.length
+        ? candidate.title + ' (' + parts.join(' - ') + ')'
+        : (candidate.title || parts.join(' - ') || ('Track ' + candidate.index));
     return prefix + ': ' + base;
+}
+
+// Extra "Embedded audio" label detail: codec and channel layout, e.g.
+// ["AAC", "5.1"] - merged into the label's parens alongside language.
+// channelLayout is Jellyfin's own human string ("5.1", "stereo") when it
+// probed one; falls back to the raw channel count ("6 ch") when it only has
+// a count. Either piece is omitted (not shown as blank) when Jellyfin didn't
+// probe it at all.
+function audioStreamDetails(candidate) {
+    const channelDesc = candidate.channelLayout || (candidate.channels ? candidate.channels + ' ch' : null);
+    return [candidate.codec ? candidate.codec.toUpperCase() : null, channelDesc].filter(Boolean);
 }
 
 // Builds the "Sync against" picker's options: one entry per embedded,
@@ -131,7 +145,7 @@ function buildReferenceOptionsHtml(subtitles, excludeIndex, embeddedSubtitles, e
     }).join('');
 
     const embeddedAudioOptions = (embeddedAudio || []).map(function (c) {
-        const label = embeddedStreamOptionLabel('Embedded audio', c);
+        const label = embeddedStreamOptionLabel('Embedded audio', c, audioStreamDetails(c));
         return '<option value="embeddedAudio:' + c.index + '">' + escapeHtml(label) + '</option>';
     }).join('');
 
@@ -140,7 +154,8 @@ function buildReferenceOptionsHtml(subtitles, excludeIndex, embeddedSubtitles, e
             return c.index !== excludeIndex;
         })
         .map(function (c) {
-            return '<option value="subtitle:' + c.index + '">' + escapeHtml(subtitleOptionLabel(c)) + '</option>';
+            const label = subtitleOptionLabel('External subtitle', c);
+            return '<option value="subtitle:' + c.index + '">' + escapeHtml(label) + '</option>';
         })
         .join('');
 

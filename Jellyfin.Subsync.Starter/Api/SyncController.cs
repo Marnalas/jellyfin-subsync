@@ -210,7 +210,10 @@ public class SyncController(
                 index = c.Index,
                 language = c.Language,
                 languageName = LanguageName(c.Language),
-                title = c.Title
+                title = c.Title,
+                codec = c.Codec,
+                channels = c.Channels,
+                channelLayout = c.ChannelLayout
             })
         });
 
