@@ -85,6 +85,27 @@ public sealed class SkipCacheTests : IDisposable
         Assert.False(cache.IsCached(subtitle));
     }
 
+    /// <summary>
+    /// A recorded entry for a file deleted since (stale Jellyfin metadata
+    /// still listing it, or a race with an admin cleaning up) must not throw
+    /// trying to hash bytes that no longer exist - there's nothing left to
+    /// verify the recorded hash against, so this reads as "not synced"
+    /// rather than crashing the caller.
+    /// </summary>
+    [Fact]
+    public void FileDeletedSinceItWasMarkedSynced_IsNotTreatedAsSynced()
+    {
+        var subtitle = WriteSubtitle("a.srt");
+
+        using var cache = NewCache();
+        cache.AddToCache(subtitle);
+        Assert.True(cache.IsCached(subtitle));
+
+        File.Delete(subtitle);
+
+        Assert.False(cache.IsCached(subtitle));
+    }
+
     [Fact]
     public void Entries_RoundTripAcrossInstances()
     {

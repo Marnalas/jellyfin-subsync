@@ -131,8 +131,10 @@ public class SyncController(
         }
 
         return request?.SubtitleIndex is { } subtitleIndex
-            ? await SyncOneAsync(work, subtitleStreams, config, subtitleIndex, request.ReferenceSubtitleIndex,
-                    cancellationToken)
+            ? await SyncOneAsync(
+                    work, subtitleStreams, audioStreams, config, subtitleIndex,
+                    request.ReferenceSubtitleIndex, request.ReferenceEmbeddedSubtitleIndex,
+                    request.ReferenceEmbeddedAudioIndex, cancellationToken)
                 .ConfigureAwait(false)
             : await SyncAllAsync(item, work, subtitleStreams, config, cancellationToken).ConfigureAwait(false);
     }
@@ -171,10 +173,13 @@ public class SyncController(
         var work = SubtitleWorkBuilder.BuildWork(item.Path, isDiscImageOrFolder, subtitleStreams, audioStreams, config);
         var candidates = work.Group is null
             ? []
-            : SubtitleWorkBuilder.BuildCandidateList(work.Group, subtitleStreams, skipCache.IsCached);
+            : SubtitleWorkBuilder.BuildCandidateList(
+                work.Group, subtitleStreams, skipCache.IsCached, failCache.HasPriorFailure);
+        var embeddedSubtitles = SubtitleWorkBuilder.BuildEmbeddedSubtitleCandidates(subtitleStreams, config);
+        var embeddedAudio = SubtitleWorkBuilder.BuildEmbeddedAudioCandidates(audioStreams);
 
         // Projected to lowercase-first keys, matching every other response
-        // this controller hands back - SubtitleCandidate's own PascalCase
+        // this controller hands back - the domain records' own PascalCase
         // properties would otherwise reach the client as-is (Jellyfin's JSON
         // pipeline preserves declared casing, it doesn't camelCase it), and
         // the frontend picker reads lowercase keys.
@@ -186,19 +191,39 @@ public class SyncController(
                 index = c.Index,
                 path = c.Path,
                 language = c.Language,
-                // Jellyfin's own curated culture list, not the browser's -
-                // MediaStream.Language is an ISO 639 code ("eng"), which
-                // isn't something an admin should have to decode. Null when
-                // the stream has no language or Jellyfin doesn't recognize
-                // the code; the frontend falls back to the raw code then.
-                languageName = string.IsNullOrEmpty(c.Language)
-                    ? null
-                    : localizationManager.FindLanguageInfo(c.Language)?.DisplayName,
+                languageName = LanguageName(c.Language),
                 title = c.Title,
                 isForced = c.IsForced,
-                isAlreadySynced = c.IsAlreadySynced
+                isAlreadySynced = c.IsAlreadySynced,
+                hasFailed = c.HasFailed
+            }),
+            embeddedSubtitles = embeddedSubtitles.Select(c => new
+            {
+                index = c.Index,
+                language = c.Language,
+                languageName = LanguageName(c.Language),
+                title = c.Title,
+                isPgs = c.IsPgs
+            }),
+            embeddedAudio = embeddedAudio.Select(c => new
+            {
+                index = c.Index,
+                language = c.Language,
+                languageName = LanguageName(c.Language),
+                title = c.Title,
+                codec = c.Codec,
+                channels = c.Channels,
+                channelLayout = c.ChannelLayout
             })
         });
+
+        // Jellyfin's own curated culture list, not the browser's -
+        // MediaStream.Language is an ISO 639 code ("eng"), which isn't
+        // something an admin should have to decode. Null when the stream
+        // has no language or Jellyfin doesn't recognize the code; the
+        // frontend falls back to the raw code then.
+        string? LanguageName(string? language)
+            => string.IsNullOrEmpty(language) ? null : localizationManager.FindLanguageInfo(language)?.DisplayName;
     }
 
     /// <summary>
@@ -270,27 +295,48 @@ public class SyncController(
 
     /// <summary>
     /// Syncs exactly one of an item's eligible subtitles against an
-    /// explicitly chosen reference (another eligible subtitle, or the video
+    /// explicitly chosen reference (another eligible subtitle, a specific
+    /// embedded subtitle/audio stream, or the video's own auto-classification
     /// by default) instead of every subtitle Jellyfin knows about for the
-    /// item. Unlike <see cref="SyncAllAsync"/>, the skip/fail cache is only
-    /// cleared for the one subtitle being (re)synced - clearing every
-    /// sibling's cache entry too would undo exactly the "without affecting
-    /// others" behavior this endpoint exists for, and would also wipe the
-    /// cache state that makes a sibling eligible to be picked as a
-    /// known-good reference.
+    /// item. Unlike <see cref="SyncAllAsync"/>, only the one subtitle being
+    /// (re)synced has its skip-cache entry cleared first - clearing every
+    /// sibling's too would undo exactly the "without affecting others"
+    /// behavior this endpoint exists for, and would also wipe the cache
+    /// state that makes a sibling eligible to be picked as a known-good
+    /// reference. The fail-cache's consecutive-failure cap is bypassed
+    /// outright for this one attempt (see <see cref="SubtitleSyncOrchestrator.ProcessAsync"/>'s
+    /// <c>bypassFailureCap</c>) rather than cleared beforehand - a
+    /// deliberate, one-off admin retry doesn't need the sweep's protection
+    /// against repeatedly re-attempting a dead-end file, but the fail-cache
+    /// itself still updates exactly as normal either way: cleared on a
+    /// successful outcome, extended on another failure.
     /// </summary>
     private async Task<ActionResult<object>> SyncOneAsync(
         ItemSubtitleWork work,
         IReadOnlyList<MediaStream> subtitleStreams,
+        IReadOnlyList<MediaStream> audioStreams,
         PluginConfiguration config,
         int subtitleIndex,
         int? referenceSubtitleIndex,
+        int? referenceEmbeddedSubtitleIndex,
+        int? referenceEmbeddedAudioIndex,
         CancellationToken cancellationToken)
     {
         if (work.Group is null)
             return Ok(new { cleared = 0, reason = work.Reason.ToString(), results = Array.Empty<object>() });
 
-        var candidates = SubtitleWorkBuilder.BuildCandidateList(work.Group, subtitleStreams, skipCache.IsCached);
+        var referenceFieldsGiven = new[]
+                { referenceSubtitleIndex, referenceEmbeddedSubtitleIndex, referenceEmbeddedAudioIndex }
+            .Count(index => index is not null);
+        if (referenceFieldsGiven > 1)
+            return BadRequest(new
+            {
+                error = "Only one of referenceSubtitleIndex, referenceEmbeddedSubtitleIndex or "
+                        + "referenceEmbeddedAudioIndex can be given."
+            });
+
+        var candidates = SubtitleWorkBuilder.BuildCandidateList(
+            work.Group, subtitleStreams, skipCache.IsCached, failCache.HasPriorFailure);
 
         var target = candidates.FirstOrDefault(c => c.Index == subtitleIndex);
         if (target is null)
@@ -300,6 +346,9 @@ public class SyncController(
             });
 
         string referencePath;
+        JellyfinReportedSituation? situationOverride = null;
+        int? referenceStreamIndexOverride = null;
+
         if (referenceSubtitleIndex is { } referenceIndex)
         {
             if (referenceIndex == subtitleIndex)
@@ -318,6 +367,42 @@ public class SyncController(
 
             referencePath = reference.Path;
         }
+        else if (referenceEmbeddedSubtitleIndex is { } embeddedSubtitleIndex)
+        {
+            var embeddedSubtitle = SubtitleWorkBuilder
+                .BuildEmbeddedSubtitleCandidates(subtitleStreams, config)
+                .FirstOrDefault(c => c.Index == embeddedSubtitleIndex);
+            if (embeddedSubtitle is null)
+                return BadRequest(new
+                {
+                    error = $"Embedded subtitle stream index {embeddedSubtitleIndex} is not an eligible "
+                            + "reference for this item."
+                });
+
+            referencePath = work.Group.VideoPath;
+            situationOverride = embeddedSubtitle.IsPgs
+                ? JellyfinReportedSituation.HasFullPgsEmbeddedSubtitles
+                : JellyfinReportedSituation.HasFullEmbeddedSubtitles;
+            referenceStreamIndexOverride =
+                SubtitleWorkBuilder.RelativeEmbeddedSubtitleIndex(subtitleStreams, embeddedSubtitle.Index);
+        }
+        else if (referenceEmbeddedAudioIndex is { } embeddedAudioIndex)
+        {
+            var embeddedAudio = SubtitleWorkBuilder
+                .BuildEmbeddedAudioCandidates(audioStreams)
+                .FirstOrDefault(c => c.Index == embeddedAudioIndex);
+            if (embeddedAudio is null)
+                return BadRequest(new
+                {
+                    error = $"Embedded audio stream index {embeddedAudioIndex} is not an eligible reference "
+                            + "for this item."
+                });
+
+            referencePath = work.Group.VideoPath;
+            situationOverride = JellyfinReportedSituation.ManuallyTargetedAudio;
+            referenceStreamIndexOverride =
+                SubtitleWorkBuilder.RelativeEmbeddedAudioIndex(audioStreams, embeddedAudio.Index);
+        }
         else
         {
             referencePath = work.Group.VideoPath;
@@ -334,7 +419,17 @@ public class SyncController(
         try
         {
             var outcome = await orchestrator
-                .ProcessAsync(config, work.Group, target.Path, cancellationToken, referencePathOverride: referencePath)
+                .ProcessAsync(
+                    config, work.Group, target.Path, cancellationToken,
+                    referencePathOverride: referencePath,
+                    situationOverride: situationOverride,
+                    referenceStreamIndexOverride: referenceStreamIndexOverride,
+                    // A deliberate, one-off admin action - unlike the sweep,
+                    // it doesn't need protecting from re-attempting a
+                    // dead-end file every run, so the "failed too many times
+                    // in a row" cap doesn't apply here. The outcome still
+                    // updates the fail-cache as normal either way.
+                    bypassFailureCap: true)
                 .ConfigureAwait(false);
             result = new { path = target.Path, outcome = outcome?.ToString() ?? "Skipped" };
         }
@@ -365,16 +460,25 @@ public class SyncController(
     /// Optional body for <see cref="SyncItem"/>. Absent (or an absent/null
     /// <see cref="SubtitleIndex"/>) means "sync every eligible subtitle",
     /// today's only behavior. A <see cref="SubtitleIndex"/> narrows the
-    /// request to that one subtitle; <see cref="ReferenceSubtitleIndex"/>
-    /// then optionally names what to align it against - another eligible
-    /// subtitle - instead of the video, which is the default when it's
-    /// absent. Both indices are <c>MediaStream.Index</c> values, matched
-    /// against the same candidate list <c>GET .../Subtitles</c> returns, so
+    /// request to that one subtitle; at most one of
+    /// <see cref="ReferenceSubtitleIndex"/>, <see cref="ReferenceEmbeddedSubtitleIndex"/>
+    /// or <see cref="ReferenceEmbeddedAudioIndex"/> then optionally names
+    /// what to align it against - another eligible external subtitle, a
+    /// specific embedded subtitle stream, or a specific embedded audio
+    /// stream, respectively - instead of the video (letting
+    /// <see cref="Infrastructure.SubtitleWorkBuilder.BuildWork"/>'s own
+    /// auto-classification decide), which is the default when all three are
+    /// absent. Every index is a raw <c>MediaStream.Index</c> value, matched
+    /// against the same candidate lists <c>GET .../Subtitles</c> returns, so
     /// a client never has to round-trip a filesystem path. Can't be
     /// narrower than public: it's part of <see cref="SyncItem"/>'s own
     /// signature, and a public method can't expose a less-accessible type -
     /// nesting it here is as narrow as C# allows while still binding it
     /// directly as that action's <c>[FromBody]</c> parameter type.
     /// </summary>
-    public sealed record SyncItemRequest(int? SubtitleIndex, int? ReferenceSubtitleIndex);
+    public sealed record SyncItemRequest(
+        int? SubtitleIndex,
+        int? ReferenceSubtitleIndex,
+        int? ReferenceEmbeddedSubtitleIndex,
+        int? ReferenceEmbeddedAudioIndex);
 }

@@ -116,6 +116,12 @@ public class SkipCache : ISkipCache
                 return false;
         }
 
+        // A recorded hash for a file that's since been deleted or renamed
+        // (stale Jellyfin metadata, or a race with an admin cleaning up)
+        // has no content left to verify against - not "already synced".
+        if (!File.Exists(subtitlePath))
+            return false;
+
         if (known.StartsWith(Sha256Prefix, StringComparison.Ordinal))
         {
             return string.Equals(

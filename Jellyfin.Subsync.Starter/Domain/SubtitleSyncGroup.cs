@@ -49,7 +49,39 @@ public enum JellyfinReportedSituation
     /// <c>SubtitleSyncGroup.ReferenceStreamIndex</c> is an <em>audio</em>
     /// stream's rank, not a subtitle stream's.
     /// </summary>
-    AttemptOnFailed = 5
+    AttemptOnFailed = 5,
+
+    /// <summary>
+    /// An admin explicitly picked this specific embedded subtitle stream as
+    /// the sync reference from the Sync tab's single-item picker, bypassing
+    /// <see cref="Infrastructure.SubtitleWorkBuilder.BuildWork"/>'s own
+    /// disposition-tag-driven guess entirely. Only ever produced by
+    /// <see cref="Api.SyncController"/>, and only ever used to log/reason
+    /// about the request one layer up - it never reaches
+    /// <see cref="Infrastructure.ISubsyncClient.SyncAndWaitAsync"/> as-is.
+    /// The caller resolves it to <see cref="HasFullEmbeddedSubtitles"/> or
+    /// <see cref="HasFullPgsEmbeddedSubtitles"/> based on the chosen
+    /// stream's own codec before it ever reaches the wire - the sidecar has
+    /// no way to tell a text stream from a PGS one on its own, and those two
+    /// situations already carry that exact distinction. Takes priority over
+    /// <see cref="AttemptOnFailed"/>: an explicit admin pick is never
+    /// silently overridden by the retry heuristic.
+    /// </summary>
+    ManuallyTargetedSubtitle = 6,
+
+    /// <summary>
+    /// An admin explicitly picked this specific embedded audio stream as the
+    /// sync reference from the Sync tab's single-item picker. Handled by the
+    /// sidecar exactly like <see cref="AttemptOnFailed"/> and
+    /// <see cref="HasOnlyForcedEmbeddedSubtitles"/> (forced VAD, reference
+    /// pinned to an audio stream) - same posture as those two, its
+    /// accompanying <c>SubtitleSyncGroup.ReferenceStreamIndex</c> is an
+    /// audio stream's rank, not a subtitle stream's. Only ever produced by
+    /// <see cref="Api.SyncController"/>, and takes priority over
+    /// <see cref="AttemptOnFailed"/> for the same reason
+    /// <see cref="ManuallyTargetedSubtitle"/> does.
+    /// </summary>
+    ManuallyTargetedAudio = 7
 }
 
 /// <summary>

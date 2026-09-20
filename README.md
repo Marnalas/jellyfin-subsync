@@ -108,9 +108,10 @@ smoke test are in [Installation](docs/INSTALLATION.md).
 | [Breaking changes](docs/BREAKING_CHANGES.md) | Upgrade notes per version |
 | [Contributing](CONTRIBUTING.md) | Branches, versioning, and testing requirements for PRs |
 
-## Roadmap
+## Roadmap / TODO list
 
-- Allow single item sync to target a specific embedded subtitle
+- Nothing for now, everything done, congratz' me
+[You have a suggestion? Open a [feature request](.github/ISSUE_TEMPLATE/feature_request.md) ]
 
 ## Thanks
 

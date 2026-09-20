@@ -148,6 +148,7 @@ public class SubsyncClientTests
     [InlineData(JellyfinReportedSituation.HasOnlyForcedEmbeddedSubtitles, "forced_only")]
     [InlineData(JellyfinReportedSituation.HasFullPgsEmbeddedSubtitles, "full_pgs")]
     [InlineData(JellyfinReportedSituation.AttemptOnFailed, "attempt_on_failed")]
+    [InlineData(JellyfinReportedSituation.ManuallyTargetedAudio, "manual_audio")]
     public async Task Submit_SendsTheJellyfinReportedSituationUnderItsWireName(
         JellyfinReportedSituation situation, string wireValue)
     {

@@ -202,10 +202,9 @@ internal static class SubtitleWorkBuilder
                             .OrderBy(stream => stream.BitRate ?? int.MaxValue)
                             .ThenBy(stream => stream.Index)
                             .FirstOrDefault();
-        var audioByContainerOrder = allAudio.OrderBy(stream => stream.Index).ToList();
         var fallbackAudioStreamIndex = bestAudio is null
             ? (int?)null
-            : audioByContainerOrder.FindIndex(candidate => candidate.Index == bestAudio.Index);
+            : RelativeEmbeddedAudioIndex(allAudio, bestAudio.Index);
 
         return beside.Count == 0
             ? new ItemSubtitleWork(null, ItemSkipReason.NoUsableSubtitles, elsewhere)
@@ -219,6 +218,91 @@ internal static class SubtitleWorkBuilder
         int RelativeSubtitleStreamIndex(MediaStream stream)
             => embeddedByContainerOrder.FindIndex(candidate => candidate.Index == stream.Index);
     }
+
+    /// <summary>
+    /// A chosen embedded subtitle stream's 0-based rank among every embedded
+    /// subtitle stream the video has (text and bitmap codecs alike, in
+    /// container order) - what ffmpeg's own per-type stream numbering means
+    /// (the "1" in "s:1"), not <paramref name="rawIndex"/> itself (a raw
+    /// <c>MediaStream.Index</c>, the stream's absolute position among every
+    /// stream in the file). Null if no stream in <paramref name="subtitleStreams"/>
+    /// has that raw index. <paramref name="subtitleStreams"/> may be every
+    /// subtitle stream the item has (embedded and external alike) - only the
+    /// embedded ones are ranked.
+    /// </summary>
+    internal static int? RelativeEmbeddedSubtitleIndex(IReadOnlyList<MediaStream> subtitleStreams, int rawIndex)
+    {
+        var embeddedByContainerOrder = subtitleStreams
+            .Where(stream => stream is { Type: MediaStreamType.Subtitle, IsExternal: false })
+            .OrderBy(stream => stream.Index)
+            .ToList();
+        var rank = embeddedByContainerOrder.FindIndex(candidate => candidate.Index == rawIndex);
+        return rank < 0 ? null : rank;
+    }
+
+    /// <summary>
+    /// A chosen embedded audio stream's 0-based rank among every embedded
+    /// audio stream the video has, in container order - what ffmpeg's own
+    /// per-type stream numbering means (the "2" in "a:2"), not
+    /// <paramref name="rawIndex"/> itself. Null if no stream in
+    /// <paramref name="audioStreams"/> has that raw index.
+    /// <paramref name="audioStreams"/> may include external audio streams -
+    /// only embedded ones are ranked.
+    /// </summary>
+    internal static int? RelativeEmbeddedAudioIndex(IReadOnlyList<MediaStream> audioStreams, int rawIndex)
+    {
+        var audioByContainerOrder = audioStreams
+            .Where(stream => stream is { Type: MediaStreamType.Audio, IsExternal: false })
+            .OrderBy(stream => stream.Index)
+            .ToList();
+        var rank = audioByContainerOrder.FindIndex(candidate => candidate.Index == rawIndex);
+        return rank < 0 ? null : rank;
+    }
+
+    /// <summary>
+    /// Every embedded, non-forced subtitle stream eligible to be manually
+    /// picked as a sync reference from the Sync tab's single-item picker -
+    /// the same text/PGS eligibility rules <see cref="BuildWork"/> applies
+    /// when guessing one automatically, just not narrowed down to a single
+    /// pick. VobSub/DVB/xsub streams are excluded entirely, same as
+    /// <see cref="BuildWork"/> - ffsubsync has no flag to point at them.
+    /// </summary>
+    internal static IReadOnlyList<EmbeddedSubtitleCandidate> BuildEmbeddedSubtitleCandidates(
+        IReadOnlyList<MediaStream> subtitleStreams,
+        PluginConfiguration config)
+    {
+        return
+        [
+            .. subtitleStreams
+                .Where(stream => stream is { Type: MediaStreamType.Subtitle, IsExternal: false, IsForced: false })
+                .Where(stream => !IsOtherBitmap(stream))
+                .Where(stream => !IsPgs(stream) || config.EnablePgsSupport)
+                .Select(stream =>
+                    new EmbeddedSubtitleCandidate(stream.Index, stream.Language, stream.Title, IsPgs(stream)))
+        ];
+
+        bool IsPgs(MediaStream stream)
+            => stream.Codec is not null && string.Equals(stream.Codec, "PGSSUB", StringComparison.OrdinalIgnoreCase);
+
+        bool IsOtherBitmap(MediaStream stream)
+            => stream.Codec is not null
+               && BitmapSubtitleCodecs.Contains(stream.Codec, StringComparer.OrdinalIgnoreCase)
+               && !IsPgs(stream);
+    }
+
+    /// <summary>
+    /// Every embedded audio stream eligible to be manually picked as a sync
+    /// reference from the Sync tab's single-item picker.
+    /// </summary>
+    internal static IReadOnlyList<EmbeddedAudioCandidate> BuildEmbeddedAudioCandidates(
+        IReadOnlyList<MediaStream> audioStreams)
+        =>
+        [
+            .. audioStreams
+                .Where(stream => stream is { Type: MediaStreamType.Audio, IsExternal: false })
+                .Select(stream => new EmbeddedAudioCandidate(
+                    stream.Index, stream.Language, stream.Title, stream.Codec, stream.Channels, stream.ChannelLayout))
+        ];
 
     /// <summary>
     /// Picks what a subtitle should be aligned against: an non-forced
@@ -246,10 +330,10 @@ internal static class SubtitleWorkBuilder
 
     /// <summary>
     /// Dresses up <see cref="SubtitleSyncGroup.SubtitlePaths"/> with the
-    /// display info and skip-cache state a subtitle/reference picker needs -
-    /// shared by the "list this item's subtitles" endpoint and by the
-    /// "sync just this one" endpoint's index validation, so both agree on
-    /// exactly the same set of eligible subtitles. <paramref name="group"/>
+    /// display info and skip/fail-cache state a subtitle/reference picker
+    /// needs - shared by the "list this item's subtitles" endpoint and by
+    /// the "sync just this one" endpoint's index validation, so both agree
+    /// on exactly the same set of eligible subtitles. <paramref name="group"/>
     /// must have been built from <paramref name="subtitleStreams"/> (or an
     /// equivalent snapshot) - a path in <see cref="SubtitleSyncGroup.SubtitlePaths"/>
     /// with no matching stream is skipped rather than throwing, since a
@@ -259,7 +343,8 @@ internal static class SubtitleWorkBuilder
     internal static IReadOnlyList<SubtitleCandidate> BuildCandidateList(
         SubtitleSyncGroup group,
         IReadOnlyList<MediaStream> subtitleStreams,
-        Func<string, bool> isAlreadySynced)
+        Func<string, bool> isAlreadySynced,
+        Func<string, bool> hasFailed)
     {
         var streamsByPath = subtitleStreams
             .Where(stream => !string.IsNullOrEmpty(stream.Path))
@@ -278,7 +363,8 @@ internal static class SubtitleWorkBuilder
                 stream.Language,
                 stream.Title,
                 group.ForcedSubtitlePaths?.Contains(path) == true,
-                isAlreadySynced(path)));
+                isAlreadySynced(path),
+                hasFailed(path)));
         }
 
         return candidates;

@@ -34,6 +34,29 @@ internal class SubtitleSyncOrchestrator(
     /// applies to a sibling candidate, so it still needs its own existence
     /// check below.
     /// </param>
+    /// <param name="situationOverride">
+    /// When given (together with <paramref name="referenceStreamIndexOverride"/>),
+    /// used as-is in place of the usual auto-derivation below - an admin's
+    /// explicit pick of a specific embedded subtitle or audio stream from
+    /// the Sync tab's single-item picker, which must win outright, including
+    /// over the <see cref="Configuration.PluginConfiguration.AttemptFallbackOnFailed"/>
+    /// retry heuristic.
+    /// </param>
+    /// <param name="referenceStreamIndexOverride">
+    /// See <paramref name="situationOverride"/>. Only meaningful together
+    /// with it.
+    /// </param>
+    /// <param name="bypassFailureCap">
+    /// Skips the "failed too many times in a row" cap
+    /// (<see cref="IFailCache.IsCached"/>) below - a deliberate, one-off
+    /// admin action from the Sync tab's single-item picker knows it's
+    /// retrying a subtitle the automatic sweep has given up on, so that cap
+    /// (which exists to stop the sweep from burning resources on the same
+    /// dead-end file every run) shouldn't apply. The outcome still updates
+    /// the fail-cache exactly as normal either way - cleared on
+    /// <see cref="SyncOutcome.Synced"/>, extended on <see cref="SyncOutcome.Failed"/>
+    /// - this only skips the early refusal to attempt at all.
+    /// </param>
     /// <returns>
     /// How the sync ended, or null when nothing was attempted (the file is
     /// gone, already synced, or outside every configured path mapping).
@@ -43,7 +66,10 @@ internal class SubtitleSyncOrchestrator(
         SubtitleSyncGroup group,
         string subtitlePath,
         CancellationToken cancellationToken,
-        string? referencePathOverride = null)
+        string? referencePathOverride = null,
+        JellyfinReportedSituation? situationOverride = null,
+        int? referenceStreamIndexOverride = null,
+        bool bypassFailureCap = false)
     {
         // The library row can be stale: the file may have been deleted or
         // replaced since the last scan. IsCached hashes the file and
@@ -51,7 +77,7 @@ internal class SubtitleSyncOrchestrator(
         if (!File.Exists(subtitlePath) || skipCache.IsCached(subtitlePath))
             return null;
 
-        if (failCache.IsCached(subtitlePath))
+        if (!bypassFailureCap && failCache.IsCached(subtitlePath))
         {
             logger.LogDebug("Subsync: skipping {Subtitle} - failed too many times in a row", subtitlePath);
             return null;
@@ -76,30 +102,44 @@ internal class SubtitleSyncOrchestrator(
             group,
             candidate => File.Exists(candidate) && skipCache.IsCached(candidate));
 
-        // Only meaningful when the sidecar would be deciding on its own what
-        // to align against - i.e. the reference is the video, not an
-        // already-synced sibling subtitle, where a sidecar-side alignment
-        // choice has no effect at all. Whatever this fact implies for the
-        // sidecar's own alignment strategy is entirely its call; the plugin
-        // only reports what Jellyfin told it - or, for AttemptOnFailed, that
-        // this attempt follows a prior failure of this exact content, which
-        // takes priority over whatever embedded-subtitle situation would
-        // otherwise have been reported.
-        var jellyfinReportedSituation = referencePath != group.VideoPath
-            ? JellyfinReportedSituation.Irrelevant
-            : config.AttemptFallbackOnFailed && failCache.HasPriorFailure(subtitlePath)
-                ? JellyfinReportedSituation.AttemptOnFailed
-                : group.JellyfinReportedSituation;
+        // An explicit override - an admin's manual pick from the Sync tab's
+        // single-item picker - always wins outright, bypassing every fact
+        // and heuristic below entirely, including AttemptOnFailed.
+        JellyfinReportedSituation jellyfinReportedSituation;
+        int? referenceStreamIndex;
+        if (situationOverride is { } situation)
+        {
+            jellyfinReportedSituation = situation;
+            referenceStreamIndex = referenceStreamIndexOverride;
+        }
+        else
+        {
+            // Only meaningful when the sidecar would be deciding on its own
+            // what to align against - i.e. the reference is the video, not
+            // an already-synced sibling subtitle, where a sidecar-side
+            // alignment choice has no effect at all. Whatever this fact
+            // implies for the sidecar's own alignment strategy is entirely
+            // its call; the plugin only reports what Jellyfin told it - or,
+            // for AttemptOnFailed, that this attempt follows a prior failure
+            // of this exact content, which takes priority over whatever
+            // embedded-subtitle situation would otherwise have been
+            // reported.
+            jellyfinReportedSituation = referencePath != group.VideoPath
+                ? JellyfinReportedSituation.Irrelevant
+                : config.AttemptFallbackOnFailed && failCache.HasPriorFailure(subtitlePath)
+                    ? JellyfinReportedSituation.AttemptOnFailed
+                    : group.JellyfinReportedSituation;
 
-        // AttemptOnFailed's index means something different from every other
-        // situation's - an audio stream's rank, not a subtitle stream's -
-        // so it comes from a different fact on the group.
-        var referenceStreamIndex = referencePath != group.VideoPath
-            ? null
-            : jellyfinReportedSituation is
-                JellyfinReportedSituation.AttemptOnFailed or JellyfinReportedSituation.HasOnlyForcedEmbeddedSubtitles
-                ? group.FallbackAudioStreamIndex
-                : group.ReferenceStreamIndex;
+            // AttemptOnFailed's index means something different from every
+            // other situation's - an audio stream's rank, not a subtitle
+            // stream's - so it comes from a different fact on the group.
+            referenceStreamIndex = referencePath != group.VideoPath
+                ? null
+                : jellyfinReportedSituation is JellyfinReportedSituation.AttemptOnFailed
+                    or JellyfinReportedSituation.HasOnlyForcedEmbeddedSubtitles
+                    ? group.FallbackAudioStreamIndex
+                    : group.ReferenceStreamIndex;
+        }
 
         var subtitleMapping = SubtitleMatcher.ToSidecarAbsolute(subtitlePath, config);
         var referenceFileMapping = SubtitleMatcher.ToSidecarAbsolute(referencePath, config);

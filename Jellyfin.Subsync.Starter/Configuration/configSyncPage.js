@@ -83,31 +83,84 @@ function renderSyncSummary(result) {
 // its stream index when Jellyfin has neither - then always states whether
 // it's already synced (the "best case" reference the issue this feature
 // closes is about - a sibling the admin already knows is correctly synced),
-// plus "forced" when applicable. languageName is resolved server-side via
-// ILocalizationManager (Jellyfin's own curated culture list); when Jellyfin
-// doesn't recognize the code, languageName is null and this falls back to
-// the raw code (candidate.language) itself, same as Jellyfin's own UI does.
-function subtitleOptionLabel(candidate) {
+// not yet attempted at all, or attempted and failed - these last two used to
+// be lumped together as "unsynced", masking a subtitle that's stuck failing
+// every attempt - plus "forced" when applicable. languageName is resolved
+// server-side via ILocalizationManager (Jellyfin's own curated culture
+// list); when Jellyfin doesn't recognize the code, languageName is null and
+// this falls back to the raw code (candidate.language) itself, same as
+// Jellyfin's own UI does.
+function subtitleOptionLabel(prefix, candidate) {
     const languageName = candidate.languageName || candidate.language;
     const base = candidate.title && languageName
         ? candidate.title + ' (' + languageName + ')'
         : (candidate.title || languageName || ('Track ' + candidate.index));
 
-    const flags = [candidate.isAlreadySynced ? 'synced' : 'unsynced'];
+    const flags = [candidate.isAlreadySynced ? 'synced' : (candidate.hasFailed ? 'sync failed' : 'not yet synced')];
     if (candidate.isForced) flags.push('forced');
-    return base + ' (' + flags.join(', ') + ')';
+    return prefix + ': ' + base + ' (' + flags.join(', ') + ')';
 }
 
-function buildReferenceOptionsHtml(subtitles, excludeIndex) {
-    return '<option value="">Video (default)</option>' +
-        subtitles
-            .filter(function (c) {
-                return c.index !== excludeIndex;
-            })
-            .map(function (c) {
-                return '<option value="' + c.index + '">' + escapeHtml(subtitleOptionLabel(c)) + '</option>';
-            })
-            .join('');
+// Same "Title (Language)"/fallback logic as subtitleOptionLabel, prefixed
+// with what kind of stream this is instead of a synced/failed state -
+// embedded streams have no skip/fail-cache entry of their own to report.
+// extraDetails, when given, are extra descriptors (e.g. codec/channels for
+// audio streams) joined alongside the language inside the same parens.
+function embeddedStreamOptionLabel(prefix, candidate, extraDetails) {
+    const languageName = candidate.languageName || candidate.language;
+    const parts = [languageName].concat(extraDetails || []).filter(Boolean);
+    const base = candidate.title && parts.length
+        ? candidate.title + ' (' + parts.join(' - ') + ')'
+        : (candidate.title || parts.join(' - ') || ('Track ' + candidate.index));
+    return prefix + ': ' + base;
+}
+
+// Extra "Embedded audio" label detail: codec and channel layout, e.g.
+// ["AAC", "5.1"] - merged into the label's parens alongside language.
+// channelLayout is Jellyfin's own human string ("5.1", "stereo") when it
+// probed one; falls back to the raw channel count ("6 ch") when it only has
+// a count. Either piece is omitted (not shown as blank) when Jellyfin didn't
+// probe it at all.
+function audioStreamDetails(candidate) {
+    const channelDesc = candidate.channelLayout || (candidate.channels ? candidate.channels + ' ch' : null);
+    return [candidate.codec ? candidate.codec.toUpperCase() : null, channelDesc].filter(Boolean);
+}
+
+// Builds the "Sync against" picker's options: one entry per embedded,
+// non-forced subtitle stream, one per embedded audio stream, then the
+// item's eligible sibling subtitles (excluding whichever one is currently
+// the sync target) - replacing the single generic "Video (default)" guess
+// this used to offer, so an admin picks exactly which embedded stream to
+// align against instead of leaving it to the plugin's disposition-tag-driven
+// auto-classification. Each option's value encodes both its kind and index
+// (e.g. "embeddedAudio:3") so syncOneSubtitle can tell them apart from a
+// single <select> value. Falls back to the old "Video (default)" entry only
+// when there's truly nothing else to offer (no embedded streams and no
+// eligible sibling subtitle) - an item this bare still needs a way to
+// trigger the plugin's own automatic handling rather than an empty picker.
+function buildReferenceOptionsHtml(subtitles, excludeIndex, embeddedSubtitles, embeddedAudio) {
+    const embeddedSubtitleOptions = (embeddedSubtitles || []).map(function (c) {
+        const label = embeddedStreamOptionLabel(c.isPgs ? 'Embedded subtitle (PGS)' : 'Embedded subtitle', c);
+        return '<option value="embeddedSubtitle:' + c.index + '">' + escapeHtml(label) + '</option>';
+    }).join('');
+
+    const embeddedAudioOptions = (embeddedAudio || []).map(function (c) {
+        const label = embeddedStreamOptionLabel('Embedded audio', c, audioStreamDetails(c));
+        return '<option value="embeddedAudio:' + c.index + '">' + escapeHtml(label) + '</option>';
+    }).join('');
+
+    const externalSubtitleOptions = subtitles
+        .filter(function (c) {
+            return c.index !== excludeIndex;
+        })
+        .map(function (c) {
+            const label = subtitleOptionLabel('External subtitle', c);
+            return '<option value="subtitle:' + c.index + '">' + escapeHtml(label) + '</option>';
+        })
+        .join('');
+
+    const options = embeddedSubtitleOptions + embeddedAudioOptions + externalSubtitleOptions;
+    return options || '<option value="">Video (default)</option>';
 }
 
 function buildSubtitlePanelHtml(data) {
@@ -116,7 +169,7 @@ function buildSubtitlePanelHtml(data) {
         return '<div class="fieldDescription">No eligible subtitles to sync individually (' + escapeHtml(data.reason) + ').</div>';
 
     const targetOptions = subtitles.map(function (c) {
-        return '<option value="' + c.index + '">' + escapeHtml(subtitleOptionLabel(c)) + '</option>';
+        return '<option value="' + c.index + '">' + escapeHtml(subtitleOptionLabel('External subtitle', c)) + '</option>';
     }).join('');
 
     return '' +
@@ -125,6 +178,9 @@ function buildSubtitlePanelHtml(data) {
         '</div>' +
         '<div class="inputContainer">' +
         '<select is="emby-select" class="subtitleReferenceSelect" label="Sync against"></select>' +
+        '<div class="fieldDescription">Accuracy: embedded subtitle &gt; embedded audio &gt; synced external subtitle. ' +
+        'Lighter on resources: synced external subtitle &gt; embedded subtitle &gt; embedded audio. ' +
+        'Audio is the slowest, most resource-greedy, but most reliable fallback when nothing else works.</div>' +
         '</div>' +
         '<button is="emby-button" type="button" class="raised syncOneSubtitleButton">' +
         '<span>Sync selected</span>' +
@@ -249,14 +305,17 @@ export default function (view) {
     // Rebuilds the reference `<select>` from whichever subtitle is
     // currently chosen as the sync target, excluding that one - the
     // client-side mirror of the rule the endpoint itself enforces (a
-    // subtitle can't be synced against itself).
+    // subtitle can't be synced against itself). Embedded candidates aren't
+    // affected by which subtitle is the sync target, so they're passed
+    // through unfiltered.
     function refreshReferenceOptions(panel) {
         const targetSelect = panel.querySelector('.subtitleTargetSelect');
         const referenceSelect = panel.querySelector('.subtitleReferenceSelect');
         if (!targetSelect || !referenceSelect) return;
 
         const row = panel.closest('.itemResultRow');
-        referenceSelect.innerHTML = buildReferenceOptionsHtml(row._subtitles || [], Number(targetSelect.value));
+        referenceSelect.innerHTML = buildReferenceOptionsHtml(
+            row._subtitles || [], Number(targetSelect.value), row._embeddedSubtitles, row._embeddedAudio);
     }
 
     function toggleSubtitlePanel(row) {
@@ -277,12 +336,31 @@ export default function (view) {
 
         fetchSubtitleCandidates(row.dataset.itemId).then(function (data) {
             row._subtitles = data.subtitles || [];
+            row._embeddedSubtitles = data.embeddedSubtitles || [];
+            row._embeddedAudio = data.embeddedAudio || [];
             panel.innerHTML = buildSubtitlePanelHtml(data);
             refreshReferenceOptions(panel);
         }).catch(function () {
             row._subtitles = null;
+            row._embeddedSubtitles = null;
+            row._embeddedAudio = null;
             panel.innerHTML = '<div class="fieldDescription">Failed to load subtitles - try again.</div>';
         });
+    }
+
+    // Splits the reference `<select>`'s compound "kind:index" value (see
+    // buildReferenceOptionsHtml) back into the one request field the
+    // endpoint expects for that kind. An empty value (the "Video (default)"
+    // fallback option) sets none of them, letting the endpoint fall back to
+    // its own automatic classification.
+    function applyReferenceSelection(body, referenceValue) {
+        if (!referenceValue) return;
+        const separator = referenceValue.indexOf(':');
+        const kind = referenceValue.slice(0, separator);
+        const index = Number(referenceValue.slice(separator + 1));
+        if (kind === 'embeddedSubtitle') body.referenceEmbeddedSubtitleIndex = index;
+        else if (kind === 'embeddedAudio') body.referenceEmbeddedAudioIndex = index;
+        else body.referenceSubtitleIndex = index;
     }
 
     function syncOneSubtitle(row) {
@@ -294,10 +372,8 @@ export default function (view) {
         if (!targetSelect || !referenceSelect) return;
 
         const itemId = row.dataset.itemId;
-        const body = {
-            subtitleIndex: Number(targetSelect.value),
-            referenceSubtitleIndex: referenceSelect.value === '' ? null : Number(referenceSelect.value)
-        };
+        const body = {subtitleIndex: Number(targetSelect.value)};
+        applyReferenceSelection(body, referenceSelect.value);
 
         button.disabled = true;
         status.textContent = 'Syncing…';
