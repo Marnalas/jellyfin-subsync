@@ -60,7 +60,18 @@ public interface ICache : IDisposable
 public interface ISkipCache : ICache;
 
 /// <summary>
-/// Marker for DI: resolves to the <see cref="FailCache"/> singleton. See
-/// <see cref="ICache"/> for the actual method surface.
+/// Resolves to the <see cref="FailCache"/> singleton. See <see cref="ICache"/>
+/// for the shared method surface.
 /// </summary>
-public interface IFailCache : ICache;
+public interface IFailCache : ICache
+{
+    /// <summary>
+    /// True if this file's current content has failed at least once, even
+    /// if it hasn't yet hit the configured cap - unlike <see cref="ICache.IsCached"/>,
+    /// which only becomes true once it has. Used to detect "this attempt
+    /// follows a prior failure with the same content", for opt-in
+    /// retry-time behavior. A content change always makes this false again,
+    /// same as <see cref="ICache.IsCached"/>.
+    /// </summary>
+    bool HasPriorFailure(string subtitlePath);
+}

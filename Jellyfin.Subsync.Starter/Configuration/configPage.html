@@ -135,6 +135,18 @@
                     </div>
                 </div>
 
+                <div class="inputContainer">
+                    <label>
+                        <input is="emby-checkbox" type="checkbox" id="AttemptFallbackOnFailed" />
+                        <span>Attempt a fallback sync strategy on previously failed subtitles</span>
+                    </label>
+                    <div class="fieldDescription">
+                        When an attempt is made on a subtitle whose current content already
+                        failed to sync at least once, inform the sidecar. The sidecar can then
+                        attempt a different, more robust (but more resource greedy) sync mechanism.
+                    </div>
+                </div>
+
                 <div>
                     <button is="emby-button" type="submit" class="raised button-submit block">
                         <span>Save</span>

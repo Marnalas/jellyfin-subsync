@@ -126,6 +126,11 @@ Then in Jellyfin, go to Dashboard > Plugins > Subsync and set:
   mappings; nothing changes until you save.
 - Subtitle extensions and poll interval, if you want anything other than the
   defaults.
+- **Enable PGS subtitle support** (default on) - lets the sweep recommend
+  ffsubsync's `--pgs-ref-stream` flag for image-based PGS subtitle streams.
+  Turn it off if you hit ffsubsync's known PGS-alignment issue; embedded PGS
+  streams are then treated as if they didn't exist. See `--pgs-ref-stream` in
+  [Configuration](CONFIGURATION.md) for the full behavior.
 - **Job timeout** (default 1800s) and **Queue wait timeout** (default 3600s) -
   the two budgets described under [Timeouts and job
   budgets](CONFIGURATION.md). The defaults suit almost everyone.
@@ -135,6 +140,12 @@ Then in Jellyfin, go to Dashboard > Plugins > Subsync and set:
   sidecar at once (default 1). Only raise this alongside the sidecar's own
   `MAX_PARALLEL_JOBS`; the two need to be sized together, see the config
   page's field description.
+- **Attempt a fallback sync strategy on previously failed subtitles** (off by
+  default) - when a subtitle's current content already failed to sync at
+  least once, this reports a "retry" request to the sidecar instead of a
+  routine attempt, letting it fall back to a different, more resource-greedy
+  sync mechanism. See "Retrying a subtitle that already failed" in
+  [Configuration](CONFIGURATION.md) for what the sidecar does with it.
 
 **The plugin will not sync subtitles until `Sidecar URL` and `Path mappings`
 are both configured correctly, and your libraries have been scanned** - if
@@ -209,11 +220,13 @@ enabled libraries contribute) and is what the sweep task reads:
     <string>vtt</string>
     <string>sub</string>
   </SubtitleExtensions>
+  <EnablePgsSupport>true</EnablePgsSupport>
   <PollIntervalMilliseconds>3000</PollIntervalMilliseconds>
   <JobTimeoutSeconds>1800</JobTimeoutSeconds>
   <QueueWaitTimeoutSeconds>3600</QueueWaitTimeoutSeconds>
   <SidecarRequestTimeoutSeconds>30</SidecarRequestTimeoutSeconds>
   <MaxParallelJobs>4</MaxParallelJobs>
+  <AttemptFallbackOnFailed>false</AttemptFallbackOnFailed>
 </PluginConfiguration>
 ```
 

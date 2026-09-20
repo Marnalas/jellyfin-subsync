@@ -53,13 +53,12 @@ internal sealed class LibrarySubtitleSource(
             }
 
             IReadOnlyList<MediaStream> subtitleStreams;
+            IReadOnlyList<MediaStream> audioStreams;
             try
             {
-                subtitleStreams = mediaSourceManager.GetMediaStreams(new MediaStreamQuery
-                {
-                    ItemId = item.Id,
-                    Type = MediaStreamType.Subtitle
-                });
+                var allStreams = mediaSourceManager.GetMediaStreams(new MediaStreamQuery { ItemId = item.Id });
+                subtitleStreams = [.. allStreams.Where(stream => stream.Type == MediaStreamType.Subtitle)];
+                audioStreams = [.. allStreams.Where(stream => stream.Type == MediaStreamType.Audio)];
             }
             catch (Exception ex)
             {
@@ -82,7 +81,8 @@ internal sealed class LibrarySubtitleSource(
             // ffsubsync to align against. Read from metadata, not a stat.
             var isDiscImageOrFolder = item is Video video && video.VideoType != VideoType.VideoFile;
 
-            var work = SubtitleWorkBuilder.BuildWork(item.Path, isDiscImageOrFolder, subtitleStreams, config);
+            var work = SubtitleWorkBuilder.BuildWork(item.Path, isDiscImageOrFolder, subtitleStreams, audioStreams,
+                config);
             foreach (var subtitles in work.SubtitlesInOtherDirectories)
             {
                 logger.LogWarning(

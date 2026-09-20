@@ -33,11 +33,17 @@ internal static class SubtitleWorkBuilder
     /// <param name="itemPath">The item's video file path (BaseItem.Path).</param>
     /// <param name="isDiscImageOrFolder">True for ISO/BDMV/VIDEO_TS items, which have no single video file to align against.</param>
     /// <param name="subtitleStreams">The item's subtitle MediaStreams, external and embedded alike.</param>
+    /// <param name="audioStreams">
+    /// The item's audio MediaStreams - used only to compute
+    /// <see cref="SubtitleSyncGroup.FallbackAudioStreamIndex"/>, independent
+    /// of every subtitle-derived fact above.
+    /// </param>
     /// <param name="config">Supplies SubtitleExtensions.</param>
     internal static ItemSubtitleWork BuildWork(
         string? itemPath,
         bool isDiscImageOrFolder,
         IReadOnlyList<MediaStream> subtitleStreams,
+        IReadOnlyList<MediaStream> audioStreams,
         PluginConfiguration config)
     {
         if (string.IsNullOrEmpty(itemPath))
@@ -144,11 +150,11 @@ internal static class SubtitleWorkBuilder
         // PGS streams means bare auto-detect isn't trustworthy, same
         // reasoning as the original forced-only-text-stub fix) > "only
         // forced text streams exist" (force audio VAD) > nothing usable.
-        EmbeddedSubtitleSituation embeddedSituation;
-        int? embeddedIndex;
+        JellyfinReportedSituation jellyfinReportedSituation;
+        int? referenceStreamIndex;
         if (textStreams.Any(stream => !stream.IsForced))
         {
-            embeddedSituation = EmbeddedSubtitleSituation.HasFullEmbeddedSubtitles;
+            jellyfinReportedSituation = JellyfinReportedSituation.HasFullEmbeddedSubtitles;
             // Several non-forced text streams can exist (e.g. two dubbed
             // languages); the container's own default-disposition flag is a
             // real signal for "the" one, unlike picking an arbitrary index.
@@ -156,38 +162,57 @@ internal static class SubtitleWorkBuilder
             // claim it, for a deterministic pick either way.
             var fullTextStreams = textStreams.Where(stream => !stream.IsForced).ToList();
             var defaultTextStreams = fullTextStreams.Where(stream => stream.IsDefault).ToList();
-            embeddedIndex = RelativeSubtitleStreamIndex(defaultTextStreams is [var soleDefault]
+            referenceStreamIndex = RelativeSubtitleStreamIndex(defaultTextStreams is [var soleDefault]
                 ? soleDefault
                 : fullTextStreams.OrderBy(stream => stream.Index).First());
         }
         else if (pgsStreams is [{ IsForced: false }])
         {
-            embeddedSituation = EmbeddedSubtitleSituation.HasFullPgsEmbeddedSubtitles;
-            embeddedIndex = RelativeSubtitleStreamIndex(pgsStreams[0]);
+            jellyfinReportedSituation = JellyfinReportedSituation.HasFullPgsEmbeddedSubtitles;
+            referenceStreamIndex = RelativeSubtitleStreamIndex(pgsStreams[0]);
         }
         else if (textStreams.Count > 0)
         {
-            embeddedSituation = EmbeddedSubtitleSituation.HasOnlyForcedEmbeddedSubtitles;
-            embeddedIndex = null;
+            jellyfinReportedSituation = JellyfinReportedSituation.HasOnlyForcedEmbeddedSubtitles;
+            referenceStreamIndex = null;
         }
         else if (pgsStreams.Count > 1)
         {
             // Two or more PGS streams and no text track: ambiguous, same as
             // above, so this reports "no opinion" rather than the false claim
             // that no embedded subtitle exists at all.
-            embeddedSituation = EmbeddedSubtitleSituation.Irrelevant;
-            embeddedIndex = null;
+            jellyfinReportedSituation = JellyfinReportedSituation.Irrelevant;
+            referenceStreamIndex = null;
         }
         else
         {
-            embeddedSituation = EmbeddedSubtitleSituation.HasNoEmbeddedSubtitle;
-            embeddedIndex = null;
+            jellyfinReportedSituation = JellyfinReportedSituation.HasNoEmbeddedSubtitle;
+            referenceStreamIndex = null;
         }
+
+        // Independent of the subtitle-derived facts above: the best plain
+        // audio stream to retry against, for SubtitleSyncOrchestrator to use
+        // only if it ends up reporting JellyfinReportedSituation.AttemptOnFailed
+        // for this attempt.
+        var allAudio = audioStreams
+            .Where(stream => stream is { Type: MediaStreamType.Audio, IsExternal: false })
+            .ToList();
+        var bestAudio = allAudio.FirstOrDefault(audio => audio.IsDefault)
+                        ?? allAudio
+                            .OrderBy(stream => stream.BitRate ?? int.MaxValue)
+                            .ThenBy(stream => stream.Index)
+                            .FirstOrDefault();
+        var audioByContainerOrder = allAudio.OrderBy(stream => stream.Index).ToList();
+        var fallbackAudioStreamIndex = bestAudio is null
+            ? (int?)null
+            : audioByContainerOrder.FindIndex(candidate => candidate.Index == bestAudio.Index);
 
         return beside.Count == 0
             ? new ItemSubtitleWork(null, ItemSkipReason.NoUsableSubtitles, elsewhere)
             : new ItemSubtitleWork(
-                new SubtitleSyncGroup(itemPath, beside, forced, embeddedSituation, embeddedIndex),
+                new SubtitleSyncGroup(
+                    itemPath, beside, forced, jellyfinReportedSituation, referenceStreamIndex,
+                    fallbackAudioStreamIndex),
                 ItemSkipReason.None,
                 elsewhere);
 

@@ -91,13 +91,12 @@ public class SyncController(
         }
 
         IReadOnlyList<MediaStream> subtitleStreams;
+        IReadOnlyList<MediaStream> audioStreams;
         try
         {
-            subtitleStreams = mediaSourceManager.GetMediaStreams(new MediaStreamQuery
-            {
-                ItemId = item.Id,
-                Type = MediaStreamType.Subtitle
-            });
+            var allStreams = mediaSourceManager.GetMediaStreams(new MediaStreamQuery { ItemId = item.Id });
+            subtitleStreams = [.. allStreams.Where(stream => stream.Type == MediaStreamType.Subtitle)];
+            audioStreams = [.. allStreams.Where(stream => stream.Type == MediaStreamType.Audio)];
         }
         catch (Exception ex)
         {
@@ -110,7 +109,7 @@ public class SyncController(
         // ffsubsync to align against. Read from metadata, not a stat.
         var isDiscImageOrFolder = item is Video video && video.VideoType != VideoType.VideoFile;
 
-        var work = SubtitleWorkBuilder.BuildWork(item.Path, isDiscImageOrFolder, subtitleStreams, config);
+        var work = SubtitleWorkBuilder.BuildWork(item.Path, isDiscImageOrFolder, subtitleStreams, audioStreams, config);
         foreach (var subtitle in work.SubtitlesInOtherDirectories)
         {
             logger.LogWarning(
@@ -154,13 +153,12 @@ public class SyncController(
         var config = configurationProvider.GetSnapshot();
 
         IReadOnlyList<MediaStream> subtitleStreams;
+        IReadOnlyList<MediaStream> audioStreams;
         try
         {
-            subtitleStreams = mediaSourceManager.GetMediaStreams(new MediaStreamQuery
-            {
-                ItemId = item.Id,
-                Type = MediaStreamType.Subtitle
-            });
+            var allStreams = mediaSourceManager.GetMediaStreams(new MediaStreamQuery { ItemId = item.Id });
+            subtitleStreams = [.. allStreams.Where(stream => stream.Type == MediaStreamType.Subtitle)];
+            audioStreams = [.. allStreams.Where(stream => stream.Type == MediaStreamType.Audio)];
         }
         catch (Exception ex)
         {
@@ -170,7 +168,7 @@ public class SyncController(
         }
 
         var isDiscImageOrFolder = item is Video video && video.VideoType != VideoType.VideoFile;
-        var work = SubtitleWorkBuilder.BuildWork(item.Path, isDiscImageOrFolder, subtitleStreams, config);
+        var work = SubtitleWorkBuilder.BuildWork(item.Path, isDiscImageOrFolder, subtitleStreams, audioStreams, config);
         var candidates = work.Group is null
             ? []
             : SubtitleWorkBuilder.BuildCandidateList(work.Group, subtitleStreams, skipCache.IsCached);
@@ -326,10 +324,9 @@ public class SyncController(
         }
 
         var removed = skipCache.RemoveForPaths([target.Path]);
-        var removedFailures = failCache.RemoveForPaths([target.Path]);
         logger.LogInformation(
-            "Subsync cache: cleared {Count} skip-cache and {FailureCount} fail-cache entr(ies) for {Subtitle}",
-            removed, removedFailures, target.Path);
+            "Subsync cache: cleared {Count} skip-cache entr(ies) for {Subtitle}",
+            removed, target.Path);
 
         var orchestrator = new SubtitleSyncOrchestrator(client, skipCache, failCache, logger, suppressor);
         object result;
@@ -357,7 +354,7 @@ public class SyncController(
         }
 
         return Ok(new
-            { cleared = removed + removedFailures, reason = work.Reason.ToString(), results = new[] { result } });
+            { cleared = removed, reason = work.Reason.ToString(), results = new[] { result } });
     }
 
     private bool IsSweepRunning() =>

@@ -70,8 +70,8 @@ public sealed class SubsyncClient(
         string referenceFilename,
         string subtitleFilename,
         CancellationToken cancellationToken,
-        EmbeddedSubtitleSituation embeddedSubtitleSituation = EmbeddedSubtitleSituation.Irrelevant,
-        int? embeddedSubtitleIndex = null)
+        JellyfinReportedSituation jellyfinReportedSituation = JellyfinReportedSituation.Irrelevant,
+        int? referenceStreamIndex = null)
     {
         var baseUrl = config.SidecarUrl.TrimEnd('/');
         var requestedTimeout = Math.Max(1, config.JobTimeoutSeconds);
@@ -85,7 +85,7 @@ public sealed class SubsyncClient(
                 $"{baseUrl}/sync",
                 new SyncRequest(
                     folder, referenceFilename, subtitleFilename, requestedTimeout,
-                    ToWireValue(embeddedSubtitleSituation), embeddedSubtitleIndex),
+                    ToWireValue(jellyfinReportedSituation), referenceStreamIndex),
                 cancellationToken).ConfigureAwait(false);
 
             if ((int)response.StatusCode is >= 400 and < 500)
@@ -319,19 +319,20 @@ public sealed class SubsyncClient(
     }
 
     /// <summary>
-    /// The wire representation of <see cref="EmbeddedSubtitleSituation"/> -
+    /// The wire representation of <see cref="JellyfinReportedSituation"/> -
     /// a small, sidecar-facing vocabulary kept deliberately separate from
     /// the domain enum, translated only here. Null (the sidecar's "no
-    /// opinion" case) for <see cref="EmbeddedSubtitleSituation.Irrelevant"/>;
+    /// opinion" case) for <see cref="JellyfinReportedSituation.Irrelevant"/>;
     /// a sidecar older than this protocol ignores the field entirely.
     /// </summary>
-    private static string? ToWireValue(EmbeddedSubtitleSituation situation) => situation switch
+    private static string? ToWireValue(JellyfinReportedSituation situation) => situation switch
     {
-        EmbeddedSubtitleSituation.Irrelevant => null,
-        EmbeddedSubtitleSituation.HasNoEmbeddedSubtitle => "none",
-        EmbeddedSubtitleSituation.HasFullEmbeddedSubtitles => "full",
-        EmbeddedSubtitleSituation.HasOnlyForcedEmbeddedSubtitles => "forced_only",
-        EmbeddedSubtitleSituation.HasFullPgsEmbeddedSubtitles => "full_pgs",
+        JellyfinReportedSituation.Irrelevant => null,
+        JellyfinReportedSituation.HasNoEmbeddedSubtitle => "none",
+        JellyfinReportedSituation.HasFullEmbeddedSubtitles => "full",
+        JellyfinReportedSituation.HasOnlyForcedEmbeddedSubtitles => "forced_only",
+        JellyfinReportedSituation.HasFullPgsEmbeddedSubtitles => "full_pgs",
+        JellyfinReportedSituation.AttemptOnFailed => "attempt_on_failed",
         _ => throw new ArgumentOutOfRangeException(nameof(situation), situation, null)
     };
 
@@ -344,17 +345,18 @@ public sealed class SubsyncClient(
         [property: JsonPropertyName("timeout_seconds")]
         int TimeoutSeconds,
         // What Jellyfin reports about the video's own embedded subtitle
-        // stream(s) - see ISubsyncClient.SyncAndWaitAsync's
-        // embeddedSubtitleSituation parameter and ToWireValue above. A
-        // sidecar older than this protocol ignores unknown fields, so this
-        // is harmless against one that predates it.
-        [property: JsonPropertyName("embedded_subtitle_situation")]
-        string? EmbeddedSubtitleSituation = null,
-        // See ISubsyncClient.SyncAndWaitAsync's embeddedSubtitleIndex
+        // stream(s), or an opt-in retry request - see
+        // ISubsyncClient.SyncAndWaitAsync's jellyfinReportedSituation
+        // parameter and ToWireValue above. A sidecar older than this
+        // protocol ignores unknown fields, so this is harmless against one
+        // that predates it.
+        [property: JsonPropertyName("jellyfin_reported_situation")]
+        string? JellyfinReportedSituation = null,
+        // See ISubsyncClient.SyncAndWaitAsync's referenceStreamIndex
         // parameter - already wire-ready as a plain int, unlike the
         // situation above, so it needs no translation here.
-        [property: JsonPropertyName("embedded_subtitle_index")]
-        int? EmbeddedSubtitleIndex = null);
+        [property: JsonPropertyName("reference_stream_index")]
+        int? ReferenceStreamIndex = null);
 
     private sealed record SyncJobResponse(
         [property: JsonPropertyName("job_id")] string JobId,

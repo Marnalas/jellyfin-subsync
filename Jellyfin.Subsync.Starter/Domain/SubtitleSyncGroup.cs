@@ -1,13 +1,14 @@
 namespace Jellyfin.Subsync.Starter.Domain;
 
 /// <summary>
-/// What Jellyfin reports about a video's own embedded subtitle stream(s).
-/// A fact about the item, not an instruction - what (if anything) it implies
-/// for how the sidecar should align against the video is entirely the
-/// sidecar's call, not the plugin's. Only meaningful when the video itself
-/// is being used as the sync reference; see <see cref="Application.SubtitleSyncOrchestrator"/>.
+/// A fact - or, for <see cref="AttemptOnFailed"/>, an opt-in request - that the
+/// plugin reports about a sync attempt. Not an instruction: what (if
+/// anything) it implies for how the sidecar should align against the video
+/// is entirely the sidecar's call, not the plugin's. Only meaningful when
+/// the video itself is being used as the sync reference; see
+/// <see cref="Application.SubtitleSyncOrchestrator"/>.
 /// </summary>
-public enum EmbeddedSubtitleSituation
+public enum JellyfinReportedSituation
 {
     /// <summary>
     /// The default. Either this hasn't been computed (a group built outside
@@ -34,7 +35,21 @@ public enum EmbeddedSubtitleSituation
     /// against it via packet-display timing with no OCR; see ffsubsync's
     /// --pgs-ref-stream.
     /// </summary>
-    HasFullPgsEmbeddedSubtitles = 4
+    HasFullPgsEmbeddedSubtitles = 4,
+
+    /// <summary>
+    /// This isn't a first attempt: the subtitle being synced already failed
+    /// at least once with its current content, and the plugin's "attempt
+    /// fallback on failed" setting is on. Never produced by
+    /// <see cref="Infrastructure.SubtitleWorkBuilder.BuildWork"/> - only
+    /// <see cref="Application.SubtitleSyncOrchestrator"/> can see fail-cache
+    /// state - and takes priority over whatever embedded-subtitle situation
+    /// would otherwise have been reported for this attempt. Unlike every
+    /// other non-<see cref="Irrelevant"/> value, its accompanying
+    /// <c>SubtitleSyncGroup.ReferenceStreamIndex</c> is an <em>audio</em>
+    /// stream's rank, not a subtitle stream's.
+    /// </summary>
+    AttemptOnFailed = 5
 }
 
 /// <summary>
@@ -45,24 +60,40 @@ public enum EmbeddedSubtitleSituation
 /// single folder plus two filenames, so a cross-directory pair can't be
 /// expressed.
 /// </summary>
-/// <param name="EmbeddedSubtitleIndex">
-/// The specific embedded stream that justified
-/// <see cref="EmbeddedSubtitleSituation.HasFullEmbeddedSubtitles"/> or
-/// <see cref="EmbeddedSubtitleSituation.HasFullPgsEmbeddedSubtitles"/> -
-/// null for every other situation. Not <c>MediaStream.Index</c> (the
-/// stream's absolute position among every stream in the file); this is its
-/// 0-based rank among the video's own embedded subtitle streams only, text
-/// and bitmap codecs alike, in container order - the same numbering an
-/// ffmpeg stream specifier's per-type index means (what "s:1" in "0:s:1"
-/// refers to). Like the situation itself, a fact about the item for the
-/// sidecar to interpret, not an instruction.
+/// <param name="ReferenceStreamIndex">
+/// The specific embedded subtitle stream that justified
+/// <see cref="JellyfinReportedSituation.HasFullEmbeddedSubtitles"/> or
+/// <see cref="JellyfinReportedSituation.HasFullPgsEmbeddedSubtitles"/> -
+/// null for every other situation <see cref="Infrastructure.SubtitleWorkBuilder.BuildWork"/>
+/// itself ever produces. Not <c>MediaStream.Index</c> (the stream's absolute
+/// position among every stream in the file); this is its 0-based rank among
+/// the video's own embedded subtitle streams only, text and bitmap codecs
+/// alike, in container order - the same numbering an ffmpeg stream
+/// specifier's per-type index means (what "s:1" in "0:s:1" refers to). Like
+/// the situation itself, a fact about the item for the sidecar to interpret,
+/// not an instruction.
+/// </param>
+/// <param name="FallbackAudioStreamIndex">
+/// Jellyfin's own container-order rank (same numbering as
+/// <paramref name="ReferenceStreamIndex"/>, but among the video's own audio
+/// streams, not subtitle ones - what "a:2" in "0:a:2" refers to) of the
+/// best audio stream to retry against: the container's own default-flagged
+/// stream if one exists, same signal already used to pick a default text
+/// subtitle stream above, else the lowest-bitrate stream. Null only when
+/// the video has no audio stream at all. Always computed by
+/// <see cref="Infrastructure.SubtitleWorkBuilder.BuildWork"/>
+/// alongside the subtitle-derived facts above, but only ever read by
+/// <see cref="Application.SubtitleSyncOrchestrator"/> when it reports
+/// <see cref="JellyfinReportedSituation.AttemptOnFailed"/> instead of this
+/// record's own <see cref="JellyfinReportedSituation"/>.
 /// </param>
 internal sealed record SubtitleSyncGroup(
     string VideoPath,
     IReadOnlyList<string> SubtitlePaths,
     IReadOnlySet<string>? ForcedSubtitlePaths = null,
-    EmbeddedSubtitleSituation EmbeddedSubtitleSituation = EmbeddedSubtitleSituation.Irrelevant,
-    int? EmbeddedSubtitleIndex = null);
+    JellyfinReportedSituation JellyfinReportedSituation = JellyfinReportedSituation.Irrelevant,
+    int? ReferenceStreamIndex = null,
+    int? FallbackAudioStreamIndex = null);
 
 /// <summary>
 /// Why an item produced no group. Only used for logging - the sweep skips

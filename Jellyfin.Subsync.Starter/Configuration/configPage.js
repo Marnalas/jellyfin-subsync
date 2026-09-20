@@ -173,6 +173,9 @@ export default function (view) {
             // would otherwise be shown as the default.
             byId('MaxConsecutiveFailures').value =
                 typeof config.MaxConsecutiveFailures === 'number' ? config.MaxConsecutiveFailures : 3;
+            // Opt-in, so unlike EnablePgsSupport above, an absent key must
+            // read as "off".
+            byId('AttemptFallbackOnFailed').checked = config.AttemptFallbackOnFailed === true;
 
             const effectiveMappings = (config.LibraryPathMappings && config.LibraryPathMappings.length > 0)
                 ? config.LibraryPathMappings
@@ -205,6 +208,7 @@ export default function (view) {
             // Same reason as QueueWaitTimeoutSeconds: a deliberate 0
             // ("always retry") must not be replaced with the fallback.
             config.MaxConsecutiveFailures = getIntValue('MaxConsecutiveFailures', 3, 0);
+            config.AttemptFallbackOnFailed = byId('AttemptFallbackOnFailed').checked;
 
             ApiClient.updatePluginConfiguration(pluginId, config).then(function (result) {
                 Dashboard.processPluginConfigurationUpdateResult(result);

@@ -126,6 +126,24 @@ A few flags that make sense in this plugin's context:
   an older plugin never sends it (same result). Nothing breaks either way,
   the forced-only-stub handling just doesn't kick in until both sides are
   upgraded.
+
+  **Retrying a subtitle that already failed:** the plugin's Settings tab has
+  a **"Attempt a fallback sync strategy on previously failed subtitles"** option, off by default.
+  When it's on and an attempt is made on a subtitle whose current content
+  already failed to sync at least once, the plugin reports that instead of -
+  and with priority over - its routine embedded-subtitle report for that
+  attempt. The sidecar treats it exactly like the forced-only-stub case
+  above (`--vad webrtc`, unless you've already set `--vad` yourself), and
+  additionally points `--reference-stream` at a specific *audio* stream
+  (`a:<N>`, not the `s:<N>` every other situation above uses): the
+  container's own default-flagged audio stream if one exists, else the
+  lowest-bitrate one. This exists because ffsubsync's own default reference
+  is simply "the first audio stream in the video" (see `--reference-stream`
+  above) - possibly why the first attempt failed in the first place. Same
+  posture as everywhere else: an explicit `--reference-stream ...` already
+  in `FFSUBSYNC_EXTRA_ARGS` wins over the plugin's audio-stream pick, and an
+  explicit `--vad ...` wins over the forced `webrtc` - independently of each
+  other, so overriding one doesn't disable the other.
 - **`--pgs-ref-stream` - align against a PGS (image-based) subtitle track.**
   Also never added by the sidecar unless the plugin's report calls for it,
   and only when the plugin's own **"Enable PGS subtitle support"** config

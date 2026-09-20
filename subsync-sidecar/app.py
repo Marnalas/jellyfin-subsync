@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("subsync-sidecar")
@@ -109,13 +109,12 @@ def _has_any_flag(args, flag_names):
     return any(flag in args for flag in flag_names)
 
 
-def _reference_args_for(embedded_subtitle_situation, embedded_subtitle_index, user_args):
-    """Translate what Jellyfin told the plugin about the video's own
-    embedded subtitle stream(s) into extra ffsubsync args - a decision that
-    belongs here, not in the plugin, which has no opinion on ffsubsync's
-    flags. Any flag this function might add that the user already set
-    themselves in FFSUBSYNC_EXTRA_ARGS always wins; nothing is added in that
-    case.
+def _reference_args_for(jellyfin_reported_situation, reference_stream_index, user_args):
+    """Translate what the plugin reported about this sync attempt into extra
+    ffsubsync args - a decision that belongs here, not in the plugin, which
+    has no opinion on ffsubsync's flags. Any flag this function might add
+    that the user already set themselves in FFSUBSYNC_EXTRA_ARGS always
+    wins; nothing is added in that case.
 
     "forced_only": ffsubsync's own subs_then_webrtc default would otherwise
     align against the forced-only stub, with nothing to lock onto - audio
@@ -126,34 +125,46 @@ def _reference_args_for(embedded_subtitle_situation, embedded_subtitle_index, us
     would otherwise pick a stream itself (by longest duration, unlogged and
     unobservable), so when the plugin also told us exactly which stream that
     is, pin it explicitly with --reference-stream rather than trust a choice
-    we can never see. Anything else - absent, "none", or a value this
-    sidecar doesn't recognize (an older sidecar talking to a newer plugin) -
-    is left alone. An index-less "full"/"full_pgs" (an older plugin that
-    predates this field) falls back to the prior behavior instead of
-    guessing.
+    we can never see. "attempt_on_failed": this attempt follows a prior failure
+    of this exact subtitle content (an opt-in the plugin's admin turned on),
+    reported instead of - and taking priority over - whatever embedded-
+    subtitle situation would otherwise apply; forces the same --vad webrtc
+    fallback as "forced_only", and additionally points --reference-stream at
+    a specific *audio* stream the plugin picked, since ffsubsync's own
+    default reference is simply "the first audio stream in the video" -
+    possibly why the first attempt failed. Anything else - absent, "none",
+    or a value this sidecar doesn't recognize (an older sidecar talking to a
+    newer plugin) - is left alone. An index-less "full"/"full_pgs" (an older
+    plugin that predates this field) falls back to the prior behavior
+    instead of guessing.
 
-    embedded_subtitle_index is the stream's 0-based rank among the video's
-    own embedded subtitle streams only (ffmpeg's own per-type stream
-    numbering), not a raw ffprobe/container stream index - ffsubsync expects
-    it formatted as "s:<index>" (per --help: "0:s:0 uses the first subtitle
-    track... you may drop the leading 0: and write s:0"), not a bare number.
+    reference_stream_index is the stream's 0-based rank among the video's
+    own streams of one type only (ffmpeg's own per-type stream numbering),
+    not a raw ffprobe/container stream index - ffsubsync expects it
+    formatted as "s:<index>" (per --help: "0:s:0 uses the first subtitle
+    track... you may drop the leading 0: and write s:0") for every situation
+    except "attempt_on_failed", where it's an audio stream's rank instead
+    ("a:<index>").
     """
-    if embedded_subtitle_situation == "forced_only":
-        if _has_any_flag(user_args, _VAD_FLAGS):
-            return []
-        return ["--vad", "webrtc"]
-    if embedded_subtitle_situation == "full_pgs":
+    if jellyfin_reported_situation == "attempt_on_failed" or jellyfin_reported_situation == "forced_only":
+        added = []
+        if not _has_any_flag(user_args, _VAD_FLAGS):
+            added += ["--vad", "webrtc"]
+        if reference_stream_index is not None and not _has_any_flag(user_args, _REFERENCE_STREAM_FLAGS):
+            added += ["--reference-stream", f"a:{reference_stream_index}"]
+        return added
+    if jellyfin_reported_situation == "full_pgs":
         if _has_any_flag(user_args, _VAD_FLAGS + _PGS_REF_STREAM_FLAGS + _REFERENCE_STREAM_FLAGS):
             return []
-        if embedded_subtitle_index is not None:
-            return ["--pgs-ref-stream", f"s:{embedded_subtitle_index}"]
+        if reference_stream_index is not None:
+            return ["--pgs-ref-stream", f"s:{reference_stream_index}"]
         return ["--pgs-ref-stream"]
-    if embedded_subtitle_situation == "full":
-        if embedded_subtitle_index is None:
+    if jellyfin_reported_situation == "full":
+        if reference_stream_index is None:
             return []
         if _has_any_flag(user_args, _REFERENCE_STREAM_FLAGS):
             return []
-        return ["--reference-stream", f"s:{embedded_subtitle_index}"]
+        return ["--reference-stream", f"s:{reference_stream_index}"]
     return []
 
 # ffsubsync only decodes the audio track (via ffmpeg), not the full video, so
@@ -228,6 +239,13 @@ jobs_lock = threading.Lock()
 
 
 class SyncRequest(BaseModel):
+    # Lets a plugin still on the pre-rename field names populate the fields
+    # below by their old names too - see jellyfin_reported_situation and
+    # reference_stream_index. Keyword construction (every call site in this
+    # codebase, e.g. the tests) keeps working unaffected: each field's own
+    # name is itself the first choice in its AliasChoices.
+    model_config = ConfigDict(populate_by_name=True)
+
     folder: str            # absolute, sidecar-side path
     reference_filename: str
     subtitle_filename: str
@@ -236,26 +254,47 @@ class SyncRequest(BaseModel):
     # JOB_TIMEOUT_SECONDS. Capped by MAX_JOB_TIMEOUT_SECONDS either way.
     timeout_seconds: Optional[int] = None
     # What Jellyfin told the plugin about the video's own embedded subtitle
-    # stream(s) - "none", "full", "forced_only" or "full_pgs" - or None when
-    # it doesn't apply (the sync reference isn't the video, or an older
-    # plugin that predates this field). A fact, not an instruction: what it
-    # implies for ffsubsync's own alignment strategy is this sidecar's call
-    # alone, made in _reference_args_for below. An unrecognized value (a
-    # newer plugin talking to an older sidecar) is treated the same as None
-    # rather than rejected, matching this file's general "never fail on the
-    # unexpected" posture.
-    embedded_subtitle_situation: Optional[str] = None
-    # The specific embedded stream that justified "full"/"full_pgs" above, or
-    # None when the situation doesn't name one - an older plugin, a situation
-    # that isn't "full"/"full_pgs", or ambiguity the plugin itself couldn't
-    # resolve. This is the stream's 0-based rank among the video's own
-    # embedded subtitle streams only, text and bitmap codecs alike, in
-    # container order - i.e. exactly the N in ffmpeg's own "s:N" stream
-    # specifier, not a MediaStream.Index (the stream's absolute position
-    # among every stream in the file, which ffsubsync's --reference-stream/
-    # --pgs-ref-stream don't accept on their own). Only consulted for those
-    # two situations, in _reference_args_for below.
-    embedded_subtitle_index: Optional[int] = None
+    # stream(s) - "none", "full", "forced_only" or "full_pgs" - or an opt-in
+    # retry request, "attempt_on_failed", reported instead of one of those facts
+    # whenever the plugin's admin turned that setting on and this exact
+    # subtitle content already failed once. None when nothing applies (the
+    # sync reference isn't the video, or an older plugin that predates this
+    # field). A fact or request, not an instruction: what it implies for
+    # ffsubsync's own alignment strategy is this sidecar's call alone, made
+    # in _reference_args_for below. An unrecognized value (a newer plugin
+    # talking to an older sidecar) is treated the same as None rather than
+    # rejected, matching this file's general "never fail on the unexpected"
+    # posture.
+    #
+    # Also accepted under its pre-rename name, embedded_subtitle_situation -
+    # this field carries the exact same vocabulary as before, only the JSON
+    # key itself was renamed (to jellyfin_reported_situation, since it can
+    # now report a retry request as well as an embedded-subtitle fact), so a
+    # plugin that hasn't been upgraded past that rename yet must not lose
+    # its forced_only/full/full_pgs handling just because the sidecar was
+    # upgraded first.
+    jellyfin_reported_situation: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("jellyfin_reported_situation", "embedded_subtitle_situation"),
+    )
+    # The specific stream that justified "full"/"full_pgs"/"attempt_on_failed"
+    # above, or None when the situation doesn't name one - an older plugin,
+    # a situation that isn't one of those three, or ambiguity the plugin
+    # itself couldn't resolve. This is the stream's 0-based rank among the
+    # video's own streams of one type only, in container order - i.e.
+    # exactly the N in ffmpeg's own "s:N"/"a:N" stream specifier, not a
+    # MediaStream.Index (the stream's absolute position among every stream
+    # in the file, which ffsubsync's --reference-stream/--pgs-ref-stream
+    # don't accept on their own). For "full"/"full_pgs" it's a subtitle
+    # stream's rank; for "attempt_on_failed" it's an audio stream's. Only
+    # consulted for those three situations, in _reference_args_for below.
+    #
+    # Also accepted under its pre-rename name, embedded_subtitle_index - see
+    # jellyfin_reported_situation above, same reasoning.
+    reference_stream_index: Optional[int] = Field(
+        default=None,
+        validation_alias=AliasChoices("reference_stream_index", "embedded_subtitle_index"),
+    )
 
 
 def _effective_timeout(requested: Optional[int]) -> int:
@@ -337,7 +376,7 @@ def _run_ffsubsync(job_id: str, req: SyncRequest, timeout_seconds: int):
             return
 
     extra_args = list(FFSUBSYNC_EXTRA_ARGS)
-    extra_args += _reference_args_for(req.embedded_subtitle_situation, req.embedded_subtitle_index, extra_args)
+    extra_args += _reference_args_for(req.jellyfin_reported_situation, req.reference_stream_index, extra_args)
 
     cmd = [
         "ffsubsync",

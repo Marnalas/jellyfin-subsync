@@ -81,13 +81,25 @@ internal class SubtitleSyncOrchestrator(
         // already-synced sibling subtitle, where a sidecar-side alignment
         // choice has no effect at all. Whatever this fact implies for the
         // sidecar's own alignment strategy is entirely its call; the plugin
-        // only reports what Jellyfin told it.
-        var embeddedSubtitleSituation = referencePath == group.VideoPath
-            ? group.EmbeddedSubtitleSituation
-            : EmbeddedSubtitleSituation.Irrelevant;
-        var embeddedSubtitleIndex = referencePath == group.VideoPath
-            ? group.EmbeddedSubtitleIndex
-            : null;
+        // only reports what Jellyfin told it - or, for AttemptOnFailed, that
+        // this attempt follows a prior failure of this exact content, which
+        // takes priority over whatever embedded-subtitle situation would
+        // otherwise have been reported.
+        var jellyfinReportedSituation = referencePath != group.VideoPath
+            ? JellyfinReportedSituation.Irrelevant
+            : config.AttemptFallbackOnFailed && failCache.HasPriorFailure(subtitlePath)
+                ? JellyfinReportedSituation.AttemptOnFailed
+                : group.JellyfinReportedSituation;
+
+        // AttemptOnFailed's index means something different from every other
+        // situation's - an audio stream's rank, not a subtitle stream's -
+        // so it comes from a different fact on the group.
+        var referenceStreamIndex = referencePath != group.VideoPath
+            ? null
+            : jellyfinReportedSituation is
+                JellyfinReportedSituation.AttemptOnFailed or JellyfinReportedSituation.HasOnlyForcedEmbeddedSubtitles
+                ? group.FallbackAudioStreamIndex
+                : group.ReferenceStreamIndex;
 
         var subtitleMapping = SubtitleMatcher.ToSidecarAbsolute(subtitlePath, config);
         var referenceFileMapping = SubtitleMatcher.ToSidecarAbsolute(referencePath, config);
@@ -111,7 +123,7 @@ internal class SubtitleSyncOrchestrator(
         {
             var outcome = await client
                 .SyncAndWaitAsync(config, folder, referenceFilename, subtitleFilename, cancellationToken,
-                    embeddedSubtitleSituation, embeddedSubtitleIndex)
+                    jellyfinReportedSituation, referenceStreamIndex)
                 .ConfigureAwait(false);
 
             // Only a confirmed sync is recorded. A job we timed out on or
