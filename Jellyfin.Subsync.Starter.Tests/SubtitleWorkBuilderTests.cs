@@ -881,7 +881,7 @@ public class BuildCandidateListTests
             DefaultConfig());
         Assert.NotNull(work.Group);
 
-        var candidates = SubtitleWorkBuilder.BuildCandidateList(work.Group, [stream], _ => false);
+        var candidates = SubtitleWorkBuilder.BuildCandidateList(work.Group, [stream], _ => false, _ => false);
 
         var candidate = Assert.Single(candidates);
         Assert.Equal(7, candidate.Index);
@@ -890,6 +890,7 @@ public class BuildCandidateListTests
         Assert.Equal("Arabic", candidate.Title);
         Assert.False(candidate.IsForced);
         Assert.False(candidate.IsAlreadySynced);
+        Assert.False(candidate.HasFailed);
     }
 
     [Fact]
@@ -900,7 +901,7 @@ public class BuildCandidateListTests
             DefaultConfig());
         Assert.NotNull(work.Group);
 
-        var candidates = SubtitleWorkBuilder.BuildCandidateList(work.Group, streams, _ => false);
+        var candidates = SubtitleWorkBuilder.BuildCandidateList(work.Group, streams, _ => false, _ => false);
 
         Assert.Equal(["/m/Movie.en.srt", "/m/Movie.fr.srt"], candidates.Select(c => c.Path));
     }
@@ -914,10 +915,25 @@ public class BuildCandidateListTests
         Assert.NotNull(work.Group);
 
         var candidates = SubtitleWorkBuilder.BuildCandidateList(
-            work.Group, streams, path => path == "/m/Movie.en.srt");
+            work.Group, streams, path => path == "/m/Movie.en.srt", _ => false);
 
         Assert.True(candidates.Single(c => c.Path == "/m/Movie.en.srt").IsAlreadySynced);
         Assert.False(candidates.Single(c => c.Path == "/m/Movie.fr.srt").IsAlreadySynced);
+    }
+
+    [Fact]
+    public void HasFailedReflectsTheInjectedPredicate()
+    {
+        MediaStream[] streams = [External("/m/Movie.en.srt", 0), External("/m/Movie.fr.srt", 1)];
+        var work = SubtitleWorkBuilder.BuildWork("/m/Movie.mkv", isDiscImageOrFolder: false, streams, [],
+            DefaultConfig());
+        Assert.NotNull(work.Group);
+
+        var candidates = SubtitleWorkBuilder.BuildCandidateList(
+            work.Group, streams, _ => false, path => path == "/m/Movie.en.srt");
+
+        Assert.True(candidates.Single(c => c.Path == "/m/Movie.en.srt").HasFailed);
+        Assert.False(candidates.Single(c => c.Path == "/m/Movie.fr.srt").HasFailed);
     }
 
     [Fact]
@@ -928,7 +944,7 @@ public class BuildCandidateListTests
             DefaultConfig());
         Assert.NotNull(work.Group);
 
-        var candidates = SubtitleWorkBuilder.BuildCandidateList(work.Group, streams, _ => false);
+        var candidates = SubtitleWorkBuilder.BuildCandidateList(work.Group, streams, _ => false, _ => false);
 
         Assert.True(candidates.Single(c => c.Path == "/m/Movie.en.srt").IsForced);
         Assert.False(candidates.Single(c => c.Path == "/m/Movie.fr.srt").IsForced);
@@ -946,8 +962,98 @@ public class BuildCandidateListTests
         var group = new SubtitleSyncGroup("/m/Movie.mkv", ["/m/Movie.en.srt", "/m/Movie.fr.srt"]);
         MediaStream[] onlyOneStream = [External("/m/Movie.en.srt", 0)];
 
-        var candidates = SubtitleWorkBuilder.BuildCandidateList(group, onlyOneStream, _ => false);
+        var candidates = SubtitleWorkBuilder.BuildCandidateList(group, onlyOneStream, _ => false, _ => false);
 
         Assert.Equal(["/m/Movie.en.srt"], candidates.Select(c => c.Path));
+    }
+
+    private static MediaStream Embedded(
+        int index, MediaStreamType type = MediaStreamType.Subtitle, string? codec = null,
+        string? language = null, string? title = null, bool isForced = false, bool isDefault = false)
+        => new()
+        {
+            Type = type,
+            IsExternal = false,
+            Index = index,
+            Codec = codec,
+            Language = language,
+            Title = title,
+            IsForced = isForced,
+            IsDefault = isDefault
+        };
+
+    [Fact]
+    public void RelativeEmbeddedSubtitleIndex_RanksAmongEmbeddedSubtitleStreamsOnly()
+    {
+        MediaStream[] streams =
+        [
+            Embedded(2, codec: "subrip"),
+            External("/m/Movie.en.srt", index: 3),
+            Embedded(5, codec: "ass")
+        ];
+
+        Assert.Equal(0, SubtitleWorkBuilder.RelativeEmbeddedSubtitleIndex(streams, 2));
+        Assert.Equal(1, SubtitleWorkBuilder.RelativeEmbeddedSubtitleIndex(streams, 5));
+        Assert.Null(SubtitleWorkBuilder.RelativeEmbeddedSubtitleIndex(streams, 3));
+        Assert.Null(SubtitleWorkBuilder.RelativeEmbeddedSubtitleIndex(streams, 99));
+    }
+
+    [Fact]
+    public void RelativeEmbeddedAudioIndex_RanksAmongEmbeddedAudioStreamsOnly()
+    {
+        MediaStream[] streams =
+        [
+            Embedded(1, type: MediaStreamType.Audio),
+            Embedded(4, type: MediaStreamType.Audio)
+        ];
+
+        Assert.Equal(0, SubtitleWorkBuilder.RelativeEmbeddedAudioIndex(streams, 1));
+        Assert.Equal(1, SubtitleWorkBuilder.RelativeEmbeddedAudioIndex(streams, 4));
+        Assert.Null(SubtitleWorkBuilder.RelativeEmbeddedAudioIndex(streams, 2));
+    }
+
+    [Fact]
+    public void BuildEmbeddedSubtitleCandidates_ExcludesForcedAndOtherBitmapCodecs()
+    {
+        MediaStream[] streams =
+        [
+            Embedded(0, codec: "subrip"),
+            Embedded(1, codec: "subrip", isForced: true),
+            Embedded(2, codec: "DVDSUB"),
+            Embedded(3, codec: "PGSSUB")
+        ];
+
+        var candidates = SubtitleWorkBuilder.BuildEmbeddedSubtitleCandidates(streams, DefaultConfig());
+
+        Assert.Equal([0, 3], candidates.Select(c => c.Index));
+        Assert.False(candidates.Single(c => c.Index == 0).IsPgs);
+        Assert.True(candidates.Single(c => c.Index == 3).IsPgs);
+    }
+
+    [Fact]
+    public void BuildEmbeddedSubtitleCandidates_ExcludesPgsWhenPgsSupportIsDisabled()
+    {
+        MediaStream[] streams = [Embedded(0, codec: "subrip"), Embedded(1, codec: "PGSSUB")];
+        var config = DefaultConfig();
+        config.EnablePgsSupport = false;
+
+        var candidates = SubtitleWorkBuilder.BuildEmbeddedSubtitleCandidates(streams, config);
+
+        Assert.Equal([0], candidates.Select(c => c.Index));
+    }
+
+    [Fact]
+    public void BuildEmbeddedAudioCandidates_ReturnsEveryEmbeddedAudioStream()
+    {
+        MediaStream[] streams =
+        [
+            Embedded(0, type: MediaStreamType.Audio, language: "eng"),
+            Embedded(1, type: MediaStreamType.Audio, language: "fra"),
+            External("/m/Movie.en.srt", index: 2)
+        ];
+
+        var candidates = SubtitleWorkBuilder.BuildEmbeddedAudioCandidates(streams);
+
+        Assert.Equal([0, 1], candidates.Select(c => c.Index));
     }
 }

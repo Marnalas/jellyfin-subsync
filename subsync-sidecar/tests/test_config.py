@@ -246,6 +246,21 @@ def test_retry_on_fail_situation_skips_reference_stream_when_the_user_already_ch
     assert app._reference_args_for("attempt_on_failed", 1, [blocking_arg, "a:7"]) == ["--vad", "webrtc"]
 
 
+def test_manual_audio_situation_maps_to_webrtc_and_audio_reference_stream():
+    """An admin's explicit embedded-audio pick from the plugin's Sync tab is
+    handled identically to attempt_on_failed/forced_only - same forced --vad
+    webrtc, same audio-stream "a:" reference-stream pin."""
+    assert app._reference_args_for("manual_audio", 3, []) == ["--vad", "webrtc", "--reference-stream", "a:3"]
+
+
+def test_manual_audio_situation_without_an_index_only_forces_webrtc():
+    assert app._reference_args_for("manual_audio", None, []) == ["--vad", "webrtc"]
+
+
+def test_manual_audio_situation_skips_vad_when_the_user_already_set_it():
+    assert app._reference_args_for("manual_audio", 3, ["--vad", "auditok"]) == ["--reference-stream", "a:3"]
+
+
 def test_forced_only_situation_maps_to_webrtc():
     """The one text situation ffsubsync's own subs_then_webrtc default gets
     wrong: nothing to lock onto if the only embedded track(s) are forced-only

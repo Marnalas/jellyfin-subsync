@@ -132,21 +132,27 @@ def _reference_args_for(jellyfin_reported_situation, reference_stream_index, use
     fallback as "forced_only", and additionally points --reference-stream at
     a specific *audio* stream the plugin picked, since ffsubsync's own
     default reference is simply "the first audio stream in the video" -
-    possibly why the first attempt failed. Anything else - absent, "none",
-    or a value this sidecar doesn't recognize (an older sidecar talking to a
-    newer plugin) - is left alone. An index-less "full"/"full_pgs" (an older
-    plugin that predates this field) falls back to the prior behavior
-    instead of guessing.
+    possibly why the first attempt failed. "manual_audio": an admin
+    explicitly picked this specific embedded audio stream as the reference
+    from the plugin's Sync tab, instead of letting ffsubsync default to the
+    first one - handled identically to "attempt_on_failed"/"forced_only"
+    (same forced --vad webrtc, same --reference-stream a:<index>), just
+    triggered by an explicit admin choice rather than a retry or a
+    forced-only stub. Anything else - absent, "none", or a value this
+    sidecar doesn't recognize (an older sidecar talking to a newer plugin) -
+    is left alone. An index-less "full"/"full_pgs" (an older plugin that
+    predates this field) falls back to the prior behavior instead of
+    guessing.
 
     reference_stream_index is the stream's 0-based rank among the video's
     own streams of one type only (ffmpeg's own per-type stream numbering),
     not a raw ffprobe/container stream index - ffsubsync expects it
     formatted as "s:<index>" (per --help: "0:s:0 uses the first subtitle
     track... you may drop the leading 0: and write s:0") for every situation
-    except "attempt_on_failed", where it's an audio stream's rank instead
-    ("a:<index>").
+    except "attempt_on_failed"/"manual_audio", where it's an audio stream's
+    rank instead ("a:<index>").
     """
-    if jellyfin_reported_situation == "attempt_on_failed" or jellyfin_reported_situation == "forced_only":
+    if jellyfin_reported_situation in ("attempt_on_failed", "forced_only", "manual_audio"):
         added = []
         if not _has_any_flag(user_args, _VAD_FLAGS):
             added += ["--vad", "webrtc"]
@@ -257,14 +263,20 @@ class SyncRequest(BaseModel):
     # stream(s) - "none", "full", "forced_only" or "full_pgs" - or an opt-in
     # retry request, "attempt_on_failed", reported instead of one of those facts
     # whenever the plugin's admin turned that setting on and this exact
-    # subtitle content already failed once. None when nothing applies (the
-    # sync reference isn't the video, or an older plugin that predates this
-    # field). A fact or request, not an instruction: what it implies for
-    # ffsubsync's own alignment strategy is this sidecar's call alone, made
-    # in _reference_args_for below. An unrecognized value (a newer plugin
-    # talking to an older sidecar) is treated the same as None rather than
-    # rejected, matching this file's general "never fail on the unexpected"
-    # posture.
+    # subtitle content already failed once. Or "manual_audio": an admin
+    # explicitly picked a specific embedded audio stream as the reference
+    # from the plugin's Sync tab, handled identically to "attempt_on_failed"/
+    # "forced_only" (a manual pick of an embedded subtitle stream instead
+    # reuses "full"/"full_pgs" as-is - the plugin resolves which one by the
+    # chosen stream's own codec before it ever reaches here, since this
+    # sidecar has no codec information to do that itself). None when nothing
+    # applies (the sync reference isn't the video, or an older plugin that
+    # predates this field). A fact or request, not an instruction: what it
+    # implies for ffsubsync's own alignment strategy is this sidecar's call
+    # alone, made in _reference_args_for below. An unrecognized value (a
+    # newer plugin talking to an older sidecar) is treated the same as None
+    # rather than rejected, matching this file's general "never fail on the
+    # unexpected" posture.
     #
     # Also accepted under its pre-rename name, embedded_subtitle_situation -
     # this field carries the exact same vocabulary as before, only the JSON
@@ -277,17 +289,18 @@ class SyncRequest(BaseModel):
         default=None,
         validation_alias=AliasChoices("jellyfin_reported_situation", "embedded_subtitle_situation"),
     )
-    # The specific stream that justified "full"/"full_pgs"/"attempt_on_failed"
-    # above, or None when the situation doesn't name one - an older plugin,
-    # a situation that isn't one of those three, or ambiguity the plugin
-    # itself couldn't resolve. This is the stream's 0-based rank among the
-    # video's own streams of one type only, in container order - i.e.
-    # exactly the N in ffmpeg's own "s:N"/"a:N" stream specifier, not a
+    # The specific stream that justified "full"/"full_pgs"/"attempt_on_failed"/
+    # "manual_audio" above, or None when the situation doesn't name one - an
+    # older plugin, a situation that isn't one of those four, or ambiguity
+    # the plugin itself couldn't resolve. This is the stream's 0-based rank
+    # among the video's own streams of one type only, in container order -
+    # i.e. exactly the N in ffmpeg's own "s:N"/"a:N" stream specifier, not a
     # MediaStream.Index (the stream's absolute position among every stream
     # in the file, which ffsubsync's --reference-stream/--pgs-ref-stream
     # don't accept on their own). For "full"/"full_pgs" it's a subtitle
-    # stream's rank; for "attempt_on_failed" it's an audio stream's. Only
-    # consulted for those three situations, in _reference_args_for below.
+    # stream's rank; for "attempt_on_failed"/"manual_audio" it's an audio
+    # stream's. Only consulted for those four situations, in
+    # _reference_args_for below.
     #
     # Also accepted under its pre-rename name, embedded_subtitle_index - see
     # jellyfin_reported_situation above, same reasoning.

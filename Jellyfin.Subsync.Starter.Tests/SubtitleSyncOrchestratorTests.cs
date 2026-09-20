@@ -206,6 +206,71 @@ public sealed class SubtitleSyncOrchestratorTests : IDisposable
         Assert.Empty(client.Calls);
     }
 
+    /// <summary>
+    /// A deliberate, one-off admin retry from the Sync tab's single-item
+    /// picker doesn't need the sweep's protection against repeatedly
+    /// re-attempting a dead-end file, so it can ask to skip the cap outright.
+    /// </summary>
+    [Fact]
+    public async Task FileWithTooManyConsecutiveFailures_IsSubmittedWhenTheFailureCapIsBypassed()
+    {
+        var video = Write("Movie.mkv");
+        var subtitle = Write("Movie.en.srt");
+        var client = new FakeSubsyncClient(SyncOutcome.Synced);
+        var failCache = new FakeFailCache();
+        failCache.Skipped.Add(subtitle);
+        var orchestrator = new SubtitleSyncOrchestrator(client, new FakeSkipCache(), failCache, NullLogger.Instance,
+            new FakeFolderChangeSuppressor());
+
+        var result = await orchestrator.ProcessAsync(
+            Config(), new SubtitleSyncGroup(video, [subtitle]), subtitle, CancellationToken.None,
+            bypassFailureCap: true);
+
+        Assert.Equal(SyncOutcome.Synced, result);
+        Assert.Single(client.Calls);
+    }
+
+    /// <summary>
+    /// Bypassing the cap only skips the early refusal to attempt at all -
+    /// the fail-cache itself still updates exactly as normal from the
+    /// outcome, same as any other attempt.
+    /// </summary>
+    [Fact]
+    public async Task BypassedFailureCap_StillClearsTheFailCacheOnSuccess()
+    {
+        var video = Write("Movie.mkv");
+        var subtitle = Write("Movie.en.srt");
+        var client = new FakeSubsyncClient(SyncOutcome.Synced);
+        var failCache = new FakeFailCache();
+        failCache.Skipped.Add(subtitle);
+        var orchestrator = new SubtitleSyncOrchestrator(client, new FakeSkipCache(), failCache, NullLogger.Instance,
+            new FakeFolderChangeSuppressor());
+
+        await orchestrator.ProcessAsync(
+            Config(), new SubtitleSyncGroup(video, [subtitle]), subtitle, CancellationToken.None,
+            bypassFailureCap: true);
+
+        Assert.Equal([subtitle], failCache.ClearedFailures);
+    }
+
+    [Fact]
+    public async Task BypassedFailureCap_StillRecordsAnotherFailureOnAnotherFailure()
+    {
+        var video = Write("Movie.mkv");
+        var subtitle = Write("Movie.en.srt");
+        var client = new FakeSubsyncClient(SyncOutcome.Failed);
+        var failCache = new FakeFailCache();
+        failCache.Skipped.Add(subtitle);
+        var orchestrator = new SubtitleSyncOrchestrator(client, new FakeSkipCache(), failCache, NullLogger.Instance,
+            new FakeFolderChangeSuppressor());
+
+        await orchestrator.ProcessAsync(
+            Config(), new SubtitleSyncGroup(video, [subtitle]), subtitle, CancellationToken.None,
+            bypassFailureCap: true);
+
+        Assert.Equal([subtitle], failCache.RecordedFailures);
+    }
+
     [Fact]
     public async Task SubtitleDeletedSinceTheLibraryScan_IsSkippedWithoutThrowing()
     {
@@ -306,6 +371,66 @@ public sealed class SubtitleSyncOrchestratorTests : IDisposable
         var (_, reference, sub, _, _) = Assert.Single(client.Calls);
         Assert.Equal("Movie.mkv", reference);
         Assert.Equal("Movie.fr.srt", sub);
+    }
+
+    /// <summary>
+    /// An admin's manual pick from the Sync tab's single-item picker - a
+    /// specific embedded subtitle or audio stream - reports exactly that
+    /// situation/index, ignoring whatever <see cref="SubtitleWorkBuilder.BuildWork"/>
+    /// would otherwise have put on the group.
+    /// </summary>
+    [Fact]
+    public async Task SituationOverride_WinsOverTheGroupsOwnSituation()
+    {
+        var video = Write("Movie.mkv");
+        var subtitle = Write("Movie.en.srt");
+        var client = new FakeSubsyncClient(SyncOutcome.Synced);
+        var orchestrator = new SubtitleSyncOrchestrator(client, new FakeSkipCache(), new FakeFailCache(),
+            NullLogger.Instance, new FakeFolderChangeSuppressor());
+
+        await orchestrator.ProcessAsync(
+            Config(),
+            new SubtitleSyncGroup(video, [subtitle],
+                JellyfinReportedSituation: JellyfinReportedSituation.HasOnlyForcedEmbeddedSubtitles),
+            subtitle,
+            CancellationToken.None,
+            referencePathOverride: video,
+            situationOverride: JellyfinReportedSituation.ManuallyTargetedAudio,
+            referenceStreamIndexOverride: 4);
+
+        var (_, _, _, reportedSituation, reportedIndex) = Assert.Single(client.Calls);
+        Assert.Equal(JellyfinReportedSituation.ManuallyTargetedAudio, reportedSituation);
+        Assert.Equal(4, reportedIndex);
+    }
+
+    /// <summary>
+    /// An explicit manual pick must win outright, even over the
+    /// AttemptOnFailed retry heuristic - the admin's own choice is never
+    /// silently replaced by that automatic behavior.
+    /// </summary>
+    [Fact]
+    public async Task SituationOverride_WinsOverAttemptOnFailed()
+    {
+        var video = Write("Movie.mkv");
+        var subtitle = Write("Movie.en.srt");
+        var client = new FakeSubsyncClient(SyncOutcome.Synced);
+        var failCache = new FakeFailCache();
+        failCache.PriorFailures.Add(subtitle);
+        var orchestrator = new SubtitleSyncOrchestrator(client, new FakeSkipCache(), failCache, NullLogger.Instance,
+            new FakeFolderChangeSuppressor());
+
+        await orchestrator.ProcessAsync(
+            Config(AttemptFallbackOnFailed: true),
+            new SubtitleSyncGroup(video, [subtitle], FallbackAudioStreamIndex: 5),
+            subtitle,
+            CancellationToken.None,
+            referencePathOverride: video,
+            situationOverride: JellyfinReportedSituation.HasFullPgsEmbeddedSubtitles,
+            referenceStreamIndexOverride: 1);
+
+        var (_, _, _, reportedSituation, reportedIndex) = Assert.Single(client.Calls);
+        Assert.Equal(JellyfinReportedSituation.HasFullPgsEmbeddedSubtitles, reportedSituation);
+        Assert.Equal(1, reportedIndex);
     }
 
     /// <summary>

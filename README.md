@@ -108,10 +108,6 @@ smoke test are in [Installation](docs/INSTALLATION.md).
 | [Breaking changes](docs/BREAKING_CHANGES.md) | Upgrade notes per version |
 | [Contributing](CONTRIBUTING.md) | Branches, versioning, and testing requirements for PRs |
 
-## Roadmap
-
-- Allow single item sync to target a specific embedded subtitle
-
 ## Thanks
 
 This plugin is just glue - all the actual subtitle-sync work is done by:

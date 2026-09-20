@@ -324,6 +324,13 @@ public sealed class SubsyncClient(
     /// the domain enum, translated only here. Null (the sidecar's "no
     /// opinion" case) for <see cref="JellyfinReportedSituation.Irrelevant"/>;
     /// a sidecar older than this protocol ignores the field entirely.
+    /// <see cref="JellyfinReportedSituation.ManuallyTargetedSubtitle"/> has
+    /// no case here on purpose - the caller must resolve it to
+    /// <see cref="JellyfinReportedSituation.HasFullEmbeddedSubtitles"/> or
+    /// <see cref="JellyfinReportedSituation.HasFullPgsEmbeddedSubtitles"/>
+    /// based on the chosen stream's own codec before it ever reaches this
+    /// method - the sidecar has no way to tell a text stream from a PGS one
+    /// on its own, and this method has no stream to inspect.
     /// </summary>
     private static string? ToWireValue(JellyfinReportedSituation situation) => situation switch
     {
@@ -333,6 +340,7 @@ public sealed class SubsyncClient(
         JellyfinReportedSituation.HasOnlyForcedEmbeddedSubtitles => "forced_only",
         JellyfinReportedSituation.HasFullPgsEmbeddedSubtitles => "full_pgs",
         JellyfinReportedSituation.AttemptOnFailed => "attempt_on_failed",
+        JellyfinReportedSituation.ManuallyTargetedAudio => "manual_audio",
         _ => throw new ArgumentOutOfRangeException(nameof(situation), situation, null)
     };
 

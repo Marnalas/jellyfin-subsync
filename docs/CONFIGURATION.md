@@ -144,6 +144,20 @@ A few flags that make sense in this plugin's context:
   in `FFSUBSYNC_EXTRA_ARGS` wins over the plugin's audio-stream pick, and an
   explicit `--vad ...` wins over the forced `webrtc` - independently of each
   other, so overriding one doesn't disable the other.
+
+  **Manually targeting a stream from the Sync tab:** the plugin's Sync tab
+  lets an admin resync a single subtitle against a specific embedded stream
+  of their own choosing, instead of leaving it to the routine report above.
+  Picking an embedded **subtitle** stream reuses the exact same `full`/
+  `full_pgs` reports described here and under `--pgs-ref-stream` below - the
+  plugin resolves which of the two by the chosen stream's own codec before
+  reporting anything, so a manually-picked PGS stream still gets
+  `--pgs-ref-stream`, never `--reference-stream`. Picking an embedded
+  **audio** stream instead reports `manual_audio`, handled identically to
+  the retry case just above (`--vad webrtc` plus an audio `--reference-stream
+  a:<N>` pin) - same overrides apply. Either way this is an explicit admin
+  choice, so it always wins over the routine embedded-subtitle report *and*
+  over the retry-on-fail behavior above, for that one sync.
 - **`--pgs-ref-stream` - align against a PGS (image-based) subtitle track.**
   Also never added by the sidecar unless the plugin's report calls for it,
   and only when the plugin's own **"Enable PGS subtitle support"** config
