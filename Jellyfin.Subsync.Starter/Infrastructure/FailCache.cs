@@ -99,6 +99,12 @@ public class FailCache : IFailCache
                 return false;
         }
 
+        // A recorded failure for a file that's since been deleted or
+        // renamed (stale Jellyfin metadata, or an admin cleaning up a bad
+        // subtitle) has no content left to hash - there's nothing to skip.
+        if (!File.Exists(subtitlePath))
+            return false;
+
         if (!string.Equals(record.ContentHash, HashHex(subtitlePath), StringComparison.OrdinalIgnoreCase))
             return false;
 
@@ -114,7 +120,10 @@ public class FailCache : IFailCache
                 return false;
         }
 
-        return string.Equals(record.ContentHash, HashHex(subtitlePath), StringComparison.OrdinalIgnoreCase);
+        // Same reasoning as IsCached above: no file, nothing to compare the
+        // recorded hash against.
+        return File.Exists(subtitlePath)
+               && string.Equals(record.ContentHash, HashHex(subtitlePath), StringComparison.OrdinalIgnoreCase);
     }
 
     public void AddToCache(string subtitlePath)

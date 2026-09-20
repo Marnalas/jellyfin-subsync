@@ -159,6 +159,28 @@ public sealed class FailCacheTests : IDisposable
         Assert.False(cache.HasPriorFailure(subtitle));
     }
 
+    /// <summary>
+    /// A recorded failure for a file deleted since (stale Jellyfin metadata
+    /// still listing it, or an admin cleaning up a bad subtitle) must not
+    /// throw trying to hash bytes that no longer exist - both methods have
+    /// nothing left to compare the recorded hash against.
+    /// </summary>
+    [Fact]
+    public void FileDeletedSinceTheFailureWasRecorded_IsNotTreatedAsAFailure()
+    {
+        var subtitle = WriteSubtitle("a.srt");
+
+        using var cache = NewCache(1);
+        cache.AddToCache(subtitle);
+        Assert.True(cache.HasPriorFailure(subtitle));
+        Assert.True(cache.IsCached(subtitle));
+
+        File.Delete(subtitle);
+
+        Assert.False(cache.HasPriorFailure(subtitle));
+        Assert.False(cache.IsCached(subtitle));
+    }
+
     [Fact]
     public void ZeroThreshold_DisablesTheCheck()
     {
