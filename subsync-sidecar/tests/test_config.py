@@ -155,7 +155,7 @@ def test_timeout_over_the_ceiling_is_clamped():
 def test_extra_args_env_is_used_as_is_with_nothing_added(reloaded_app):
     """The sidecar no longer appends anything of its own - FFSUBSYNC_EXTRA_ARGS
     is exactly what the user configured, and any --vad override implied by
-    the plugin's reported embedded_subtitle_situation is applied later, per
+    the plugin's reported jellyfin_reported_situation is applied later, per
     request, in _run_ffsubsync rather than baked into this constant."""
     reloaded = reloaded_app(FFSUBSYNC_EXTRA_ARGS="--max-duration-seconds 1200")
     assert reloaded.FFSUBSYNC_EXTRA_ARGS == ["--max-duration-seconds", "1200"]
@@ -189,6 +189,32 @@ def test_parse_tolerates_missing_lines():
 
 
 # --- _reference_args_for ------------------------------------------------------
+
+def test_retry_on_fail_situation_maps_to_webrtc_and_audio_reference_stream():
+    """The opt-in retry report forces the same --vad webrtc fallback as
+    forced_only, plus an audio-stream --reference-stream pin - "a:", not
+    "s:" like every other situation's index."""
+    assert app._reference_args_for("attempt_on_failed", 1, []) == ["--vad", "webrtc", "--reference-stream", "a:1"]
+
+
+def test_retry_on_fail_situation_without_an_index_only_forces_webrtc():
+    """No audio stream to point at doesn't stop the VAD fallback - the two
+    additions are independent."""
+    assert app._reference_args_for("attempt_on_failed", None, []) == ["--vad", "webrtc"]
+
+
+def test_retry_on_fail_situation_skips_vad_when_the_user_already_set_it():
+    """The two flags are independently overridable - the user's own --vad
+    wins, but the audio-stream pin is still added."""
+    assert app._reference_args_for("attempt_on_failed", 1, ["--vad", "auditok"]) == ["--reference-stream", "a:1"]
+
+
+@pytest.mark.parametrize("blocking_arg", ["--reference-stream", "--refstream", "--reference-track", "--reftrack"])
+def test_retry_on_fail_situation_skips_reference_stream_when_the_user_already_chose_one(blocking_arg):
+    """Same independence the other way: the user's own --reference-stream
+    (or alias) wins, but --vad webrtc is still forced."""
+    assert app._reference_args_for("attempt_on_failed", 1, [blocking_arg, "a:7"]) == ["--vad", "webrtc"]
+
 
 def test_forced_only_situation_maps_to_webrtc():
     """The one text situation ffsubsync's own subs_then_webrtc default gets

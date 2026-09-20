@@ -179,10 +179,10 @@ def test_no_situation_reported_and_none_configured_leaves_ffsubsyncs_default_alo
 
 
 def test_forced_only_situation_is_applied_when_nothing_else_set_vad(run_sync, fake_ffsubsync):
-    """The plugin's embedded_subtitle_situation report (a forced-only-stub
+    """The plugin's jellyfin_reported_situation report (a forced-only-stub
     embedded track) is translated to --vad webrtc when the user hasn't
     configured --vad themselves."""
-    run_sync(embedded_subtitle_situation="forced_only")
+    run_sync(jellyfin_reported_situation="forced_only")
     assert fake_ffsubsync.option("--vad") == "webrtc"
 
 
@@ -190,7 +190,7 @@ def test_users_configured_vad_wins_over_the_reported_situation(run_sync, fake_ff
     """An explicit FFSUBSYNC_EXTRA_ARGS --vad is the user's own choice and
     always takes precedence over the plugin's reported situation."""
     monkeypatch.setattr(app, "FFSUBSYNC_EXTRA_ARGS", ["--vad", "auditok"])
-    run_sync(embedded_subtitle_situation="forced_only")
+    run_sync(jellyfin_reported_situation="forced_only")
     assert fake_ffsubsync.argv.count("--vad") == 1
     assert fake_ffsubsync.option("--vad") == "auditok"
 
@@ -198,7 +198,7 @@ def test_users_configured_vad_wins_over_the_reported_situation(run_sync, fake_ff
 def test_full_or_none_situations_dont_touch_vad(run_sync, fake_ffsubsync):
     """Only "forced_only" means anything to this sidecar - "full" and "none"
     are both left to ffsubsync's own default, same as no situation at all."""
-    run_sync(embedded_subtitle_situation="full")
+    run_sync(jellyfin_reported_situation="full")
     assert "--vad" not in fake_ffsubsync.argv
 
 
@@ -207,7 +207,7 @@ def test_full_pgs_situation_adds_the_bare_pgs_ref_stream_flag(run_sync, fake_ffs
     unambiguous non-forced PGS track, so the bare (auto-detect) form is
     enough. Checked by presence, not fake_ffsubsync.option(), since this
     flag takes no value and may be the last argument on the command line."""
-    run_sync(embedded_subtitle_situation="full_pgs")
+    run_sync(jellyfin_reported_situation="full_pgs")
     assert "--pgs-ref-stream" in fake_ffsubsync.argv
 
 
@@ -216,7 +216,7 @@ def test_users_configured_reference_stream_wins_over_the_full_pgs_situation(run_
     choice of what to align against, and always wins - --pgs-ref-stream must
     not be added on top of it."""
     monkeypatch.setattr(app, "FFSUBSYNC_EXTRA_ARGS", ["--reference-stream", "s:1"])
-    run_sync(embedded_subtitle_situation="full_pgs")
+    run_sync(jellyfin_reported_situation="full_pgs")
     assert "--pgs-ref-stream" not in fake_ffsubsync.argv
     assert fake_ffsubsync.option("--reference-stream") == "s:1"
 
@@ -226,14 +226,14 @@ def test_full_situation_with_an_index_pins_the_reference_stream(run_sync, fake_f
     it logs nothing about which stream it chose. When the plugin already
     resolved that ambiguity, pin it explicitly instead of trusting a choice
     we can never observe."""
-    run_sync(embedded_subtitle_situation="full", embedded_subtitle_index=2)
+    run_sync(jellyfin_reported_situation="full", reference_stream_index=2)
     assert fake_ffsubsync.option("--reference-stream") == "s:2"
 
 
 def test_full_situation_without_an_index_still_leaves_ffsubsync_alone(run_sync, fake_ffsubsync):
     """An older plugin that predates this field reports "full" with no index -
     falls back to the prior behavior rather than guessing one."""
-    run_sync(embedded_subtitle_situation="full", embedded_subtitle_index=None)
+    run_sync(jellyfin_reported_situation="full", reference_stream_index=None)
     assert "--reference-stream" not in fake_ffsubsync.argv
 
 
@@ -241,7 +241,7 @@ def test_users_configured_reference_stream_wins_over_the_full_situation(run_sync
     """An explicit FFSUBSYNC_EXTRA_ARGS --reference-stream is the user's own
     choice and always wins, even when the plugin also reported an index."""
     monkeypatch.setattr(app, "FFSUBSYNC_EXTRA_ARGS", ["--reference-stream", "s:3"])
-    run_sync(embedded_subtitle_situation="full", embedded_subtitle_index=2)
+    run_sync(jellyfin_reported_situation="full", reference_stream_index=2)
     assert fake_ffsubsync.argv.count("--reference-stream") == 1
     assert fake_ffsubsync.option("--reference-stream") == "s:3"
 
@@ -249,8 +249,47 @@ def test_users_configured_reference_stream_wins_over_the_full_situation(run_sync
 def test_full_pgs_situation_with_an_index_pins_the_pgs_reference_stream(run_sync, fake_ffsubsync):
     """The plugin's index is more precise than the bare auto-detect form, so
     use it when given."""
-    run_sync(embedded_subtitle_situation="full_pgs", embedded_subtitle_index=4)
+    run_sync(jellyfin_reported_situation="full_pgs", reference_stream_index=4)
     assert fake_ffsubsync.option("--pgs-ref-stream") == "s:4"
+
+
+def test_retry_on_fail_situation_forces_vad_webrtc_and_pins_the_audio_reference_stream(run_sync, fake_ffsubsync):
+    """The opt-in retry report forces the same --vad webrtc fallback as
+    forced_only, and additionally points --reference-stream at the audio
+    stream the plugin picked - note the "a:" prefix, unlike every other
+    situation's subtitle-stream "s:" index."""
+    run_sync(jellyfin_reported_situation="attempt_on_failed", reference_stream_index=1)
+    assert fake_ffsubsync.option("--vad") == "webrtc"
+    assert fake_ffsubsync.option("--reference-stream") == "a:1"
+
+
+def test_retry_on_fail_situation_without_an_index_still_forces_vad_webrtc(run_sync, fake_ffsubsync):
+    """No audio stream to point at (e.g. the video has none) still forces
+    the VAD fallback - that half doesn't depend on the index."""
+    run_sync(jellyfin_reported_situation="attempt_on_failed", reference_stream_index=None)
+    assert fake_ffsubsync.option("--vad") == "webrtc"
+    assert "--reference-stream" not in fake_ffsubsync.argv
+
+
+def test_retry_on_fail_situation_skips_vad_when_the_user_already_set_it(run_sync, fake_ffsubsync, monkeypatch):
+    """The two flags are independently overridable - the user's own --vad
+    still wins, but the plugin's audio-stream pick is still applied."""
+    monkeypatch.setattr(app, "FFSUBSYNC_EXTRA_ARGS", ["--vad", "auditok"])
+    run_sync(jellyfin_reported_situation="attempt_on_failed", reference_stream_index=1)
+    assert fake_ffsubsync.argv.count("--vad") == 1
+    assert fake_ffsubsync.option("--vad") == "auditok"
+    assert fake_ffsubsync.option("--reference-stream") == "a:1"
+
+
+def test_retry_on_fail_situation_skips_reference_stream_when_the_user_already_set_it(
+        run_sync, fake_ffsubsync, monkeypatch):
+    """Same independence the other way: the user's own --reference-stream
+    wins, but --vad webrtc is still forced."""
+    monkeypatch.setattr(app, "FFSUBSYNC_EXTRA_ARGS", ["--reference-stream", "a:7"])
+    run_sync(jellyfin_reported_situation="attempt_on_failed", reference_stream_index=1)
+    assert fake_ffsubsync.option("--vad") == "webrtc"
+    assert fake_ffsubsync.argv.count("--reference-stream") == 1
+    assert fake_ffsubsync.option("--reference-stream") == "a:7"
 
 
 # --- alignment metrics and the score gate ------------------------------------
