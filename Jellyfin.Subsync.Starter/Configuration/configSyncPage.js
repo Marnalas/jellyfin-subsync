@@ -179,7 +179,7 @@ function buildSubtitlePanelHtml(data) {
         '<div class="inputContainer">' +
         '<select is="emby-select" class="subtitleReferenceSelect" label="Sync against"></select>' +
         '<div class="fieldDescription">Accuracy: embedded subtitle &gt; embedded audio &gt; synced external subtitle. ' +
-        'Lighter on resources: synced external subtitle &gt; embedded subtitle &gt; embedded audio.' +
+        'Lighter on resources: synced external subtitle &gt; embedded subtitle &gt; embedded audio. ' +
         'Audio is the slowest, most resource-greedy, but most reliable fallback when nothing else works.</div>' +
         '</div>' +
         '<button is="emby-button" type="button" class="raised syncOneSubtitleButton">' +
