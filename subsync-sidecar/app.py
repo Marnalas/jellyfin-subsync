@@ -146,8 +146,7 @@ def _reference_args_for(jellyfin_reported_situation, reference_stream_index, use
     except "attempt_on_failed", where it's an audio stream's rank instead
     ("a:<index>").
     """
-    if jellyfin_reported_situation == "attempt_on_failed"
-        or jellyfin_reported_situation == "forced_only":
+    if jellyfin_reported_situation == "attempt_on_failed" or jellyfin_reported_situation == "forced_only":
         added = []
         if not _has_any_flag(user_args, _VAD_FLAGS):
             added += ["--vad", "webrtc"]
