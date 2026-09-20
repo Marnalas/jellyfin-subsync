@@ -111,6 +111,7 @@ smoke test are in [Installation](docs/INSTALLATION.md).
 ## Roadmap
 
 - Allow single item sync to target a specific embedded subtitle
+- Add docker label with the version
 
 ## Thanks
 
