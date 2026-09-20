@@ -292,6 +292,27 @@ def test_retry_on_fail_situation_skips_reference_stream_when_the_user_already_se
     assert fake_ffsubsync.option("--reference-stream") == "a:7"
 
 
+def test_pre_rename_field_names_still_apply_the_forced_only_handling(
+        library, make_job, fake_ffsubsync):
+    """A plugin that only ever sends embedded_subtitle_situation/
+    embedded_subtitle_index (the pre-rename JSON keys) must still get the
+    forced_only --vad webrtc handling once the sidecar alone is upgraded -
+    end to end, not just at the SyncRequest level."""
+    job_id = make_job(timeout_seconds=10)
+    request = app.SyncRequest(
+        folder=str(library),
+        reference_filename="v.mkv",
+        subtitle_filename="s.srt",
+        timeout_seconds=10,
+        embedded_subtitle_situation="forced_only",
+        embedded_subtitle_index=None,
+    )
+    app._run_ffsubsync(job_id, request, 10)
+
+    assert app.jobs[job_id]["status"] == "done"
+    assert fake_ffsubsync.option("--vad") == "webrtc"
+
+
 # --- alignment metrics and the score gate ------------------------------------
 
 def test_done_job_carries_the_parsed_metrics(run_sync):

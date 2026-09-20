@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("subsync-sidecar")
@@ -239,6 +239,13 @@ jobs_lock = threading.Lock()
 
 
 class SyncRequest(BaseModel):
+    # Lets a plugin still on the pre-rename field names populate the fields
+    # below by their old names too - see jellyfin_reported_situation and
+    # reference_stream_index. Keyword construction (every call site in this
+    # codebase, e.g. the tests) keeps working unaffected: each field's own
+    # name is itself the first choice in its AliasChoices.
+    model_config = ConfigDict(populate_by_name=True)
+
     folder: str            # absolute, sidecar-side path
     reference_filename: str
     subtitle_filename: str
@@ -258,7 +265,18 @@ class SyncRequest(BaseModel):
     # talking to an older sidecar) is treated the same as None rather than
     # rejected, matching this file's general "never fail on the unexpected"
     # posture.
-    jellyfin_reported_situation: Optional[str] = None
+    #
+    # Also accepted under its pre-rename name, embedded_subtitle_situation -
+    # this field carries the exact same vocabulary as before, only the JSON
+    # key itself was renamed (to jellyfin_reported_situation, since it can
+    # now report a retry request as well as an embedded-subtitle fact), so a
+    # plugin that hasn't been upgraded past that rename yet must not lose
+    # its forced_only/full/full_pgs handling just because the sidecar was
+    # upgraded first.
+    jellyfin_reported_situation: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("jellyfin_reported_situation", "embedded_subtitle_situation"),
+    )
     # The specific stream that justified "full"/"full_pgs"/"attempt_on_failed"
     # above, or None when the situation doesn't name one - an older plugin,
     # a situation that isn't one of those three, or ambiguity the plugin
@@ -270,7 +288,13 @@ class SyncRequest(BaseModel):
     # don't accept on their own). For "full"/"full_pgs" it's a subtitle
     # stream's rank; for "attempt_on_failed" it's an audio stream's. Only
     # consulted for those three situations, in _reference_args_for below.
-    reference_stream_index: Optional[int] = None
+    #
+    # Also accepted under its pre-rename name, embedded_subtitle_index - see
+    # jellyfin_reported_situation above, same reasoning.
+    reference_stream_index: Optional[int] = Field(
+        default=None,
+        validation_alias=AliasChoices("reference_stream_index", "embedded_subtitle_index"),
+    )
 
 
 def _effective_timeout(requested: Optional[int]) -> int:

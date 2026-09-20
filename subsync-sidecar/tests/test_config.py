@@ -188,6 +188,36 @@ def test_parse_tolerates_missing_lines():
     }
 
 
+# --- SyncRequest: pre-rename field names still work --------------------------
+
+_SYNC_REQUEST_BASE = {"folder": "/f", "reference_filename": "v.mkv", "subtitle_filename": "s.srt"}
+
+
+def test_sync_request_accepts_the_pre_rename_field_names():
+    """A plugin that hasn't been upgraded past the embedded_subtitle_situation/
+    embedded_subtitle_index -> jellyfin_reported_situation/reference_stream_index
+    rename must not lose its forced_only/full/full_pgs handling just because
+    the sidecar was upgraded first - same information, only the JSON keys
+    changed."""
+    req = app.SyncRequest(
+        **_SYNC_REQUEST_BASE, embedded_subtitle_situation="forced_only", embedded_subtitle_index=2)
+    assert req.jellyfin_reported_situation == "forced_only"
+    assert req.reference_stream_index == 2
+
+
+def test_sync_request_still_accepts_the_current_field_names():
+    req = app.SyncRequest(
+        **_SYNC_REQUEST_BASE, jellyfin_reported_situation="full", reference_stream_index=1)
+    assert req.jellyfin_reported_situation == "full"
+    assert req.reference_stream_index == 1
+
+
+def test_sync_request_with_neither_name_defaults_to_none():
+    req = app.SyncRequest(**_SYNC_REQUEST_BASE)
+    assert req.jellyfin_reported_situation is None
+    assert req.reference_stream_index is None
+
+
 # --- _reference_args_for ------------------------------------------------------
 
 def test_retry_on_fail_situation_maps_to_webrtc_and_audio_reference_stream():
